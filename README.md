@@ -18,6 +18,10 @@ A Unity package that brings an interactive C# REPL, a command framework, and rem
 - **Cross-submission state** — Variables, `using` directives, and submission state persist across executions
 - **Private member access** — Bypass access modifiers at compile time to inspect `private` / `protected` / `internal` members
 
+### Demo
+
+<img src="Docs~/images/repl-0.gif" />
+
 ### 1. Immediate evaluation — no class, no Main, just code
 
 ```csharp

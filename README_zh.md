@@ -18,6 +18,10 @@
 - **跨提交状态保持** — 变量、`using` 指令、submission state 在执行间保留
 - **访问私有成员** — 编译阶段绕过访问修饰符，可直接访问 `private` / `protected` / `internal` 成员
 
+### 演示
+
+<img src="Docs~/images/repl-0.gif" />
+
 ### 1. 即时求值 — 无需 class，无需 Main，直接写代码
 
 ```csharp
