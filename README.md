@@ -4,6 +4,10 @@ English | [中文](README_zh.md)
 
 A Unity package that brings an interactive C# REPL, a command framework, and remote execution capabilities to the Unity Editor and Runtime, powered by Roslyn.
 
+## Related Projects
+
+- [unity-cli-plugin](https://github.com/niqibiao/unity-cli-plugin) — A non-interactive CLI that connects to the same CSharp Console HTTP service, designed for scripting and automation workflows.
+
 ## Features
 
 - **Interactive REPL** — Continuous Roslyn-based script submissions with persistent session state
@@ -20,7 +24,7 @@ A Unity package that brings an interactive C# REPL, a command framework, and rem
 DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
 ```
 
-![Immediate evaluation](Docs~/images/repl-1-immediate.png)
+![Immediate evaluation](Docs~/images/repl-1.png)
 
 ### 2. Cross-submission state — variables survive across submissions
 
@@ -28,7 +32,7 @@ DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
 var cam = Camera.main; cam.transform.position
 ```
 
-![Cross-submission state](Docs~/images/repl-2-state.png)
+![Cross-submission state](Docs~/images/repl-2.png)
 
 ### 3. Private member access — bypass access modifiers at compile time
 
@@ -37,15 +41,15 @@ var go = GameObject.Find("Main Camera");
 go.m_InstanceID
 ```
 
-![Private member access](Docs~/images/repl-3-private.png)
+![Private member access](Docs~/images/repl-3.png)
 
 ### 4. LINQ over live scene objects
 
 ```csharp
-GameObject.FindObjectsOfType<Rigidbody>().Select(r => $"{r.name}: mass={r.mass}").ToList()
+string.Join(", ", UnityEngine.Object.FindObjectsOfType<Rigidbody>().Select(x => x.name))
 ```
 
-![LINQ query](Docs~/images/repl-4-linq.png)
+![LINQ query](Docs~/images/repl-4.png)
 
 ### 5. Command expressions — invoke server-side commands directly
 
@@ -53,7 +57,7 @@ GameObject.FindObjectsOfType<Rigidbody>().Select(r => $"{r.name}: mass={r.mass}"
 @editor.status()
 ```
 
-![Command expressions](Docs~/images/repl-5-command.png)
+![Command expressions](Docs~/images/repl-5.png)
 
 ## Installation
 
@@ -321,10 +325,6 @@ For finer-grained control, implement `ICommandAssemblyFilter` and pass it as the
 - **Unity** 2022.3 or later
 - **Python** 3 (accessible on system `PATH`)
 - **Windows Terminal** (optional — falls back to launching Python directly if unavailable)
-
-## Related Projects
-
-- [unity-cli-plugin](https://github.com/niqibiao/unity-cli-plugin) — A non-interactive CLI that connects to the same CSharp Console HTTP service, designed for scripting and automation workflows.
 
 ## Third-Party Notices
 

@@ -4,6 +4,10 @@
 
 为 Unity Editor 和 Runtime 提供交互式 C# REPL、命令框架与远程执行能力，基于 Roslyn。
 
+## 相关项目
+
+- [unity-cli-plugin](https://github.com/niqibiao/unity-cli-plugin) — 非交互式 CLI，连接同一 CSharp Console HTTP 服务，面向脚本和自动化场景。
+
 ## 功能
 
 - **交互式 REPL** — 基于 Roslyn 的连续脚本提交，支持会话状态保持
@@ -20,7 +24,7 @@
 DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
 ```
 
-![即时求值](Docs~/images/repl-1-immediate.png)
+![即时求值](Docs~/images/repl-1.png)
 
 ### 2. 跨提交状态保持 — 变量在后续提交中存活
 
@@ -28,7 +32,7 @@ DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
 var cam = Camera.main; cam.transform.position
 ```
 
-![跨提交状态](Docs~/images/repl-2-state.png)
+![跨提交状态](Docs~/images/repl-2.png)
 
 ### 3. 访问私有成员 — 编译时绕过访问修饰符
 
@@ -37,15 +41,15 @@ var go = GameObject.Find("Main Camera");
 go.m_InstanceID
 ```
 
-![私有成员访问](Docs~/images/repl-3-private.png)
+![私有成员访问](Docs~/images/repl-3.png)
 
 ### 4. LINQ 查询运行中的场景对象
 
 ```csharp
-GameObject.FindObjectsOfType<Rigidbody>().Select(r => $"{r.name}: mass={r.mass}").ToList()
+string.Join(", ", UnityEngine.Object.FindObjectsOfType<Rigidbody>().Select(x => x.name))
 ```
 
-![LINQ 查询](Docs~/images/repl-4-linq.png)
+![LINQ 查询](Docs~/images/repl-4.png)
 
 ### 5. 命令表达式 — 直接调用服务端命令
 
@@ -53,7 +57,7 @@ GameObject.FindObjectsOfType<Rigidbody>().Select(r => $"{r.name}: mass={r.mass}"
 @editor.status()
 ```
 
-![命令表达式](Docs~/images/repl-5-command.png)
+![命令表达式](Docs~/images/repl-5.png)
 
 ## 安装
 
@@ -321,10 +325,6 @@ Zh1Zh1.CSharpConsole.RuntimeInitializer.ConsoleInitialize();
 - **Unity** 2022.3 或更高版本
 - **Python** 3（系统 PATH 可访问）
 - **Windows Terminal**（可选 — 不可用时回退到直接启动 Python）
-
-## 相关项目
-
-- [unity-cli-plugin](https://github.com/niqibiao/unity-cli-plugin) — 非交互式 CLI，连接同一 CSharp Console HTTP 服务，面向脚本和自动化场景。
 
 ## 第三方声明
 
