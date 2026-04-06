@@ -68,16 +68,8 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             ExitingPlaymode = 3
         }
 
-        private enum PendingPlaymodeTransition
-        {
-            None = 0,
-            Entering = 1,
-            Exiting = 2
-        }
-
         private static PlaymodeLifecycleState s_PlaymodeLifecycleState;
         private static bool s_PlaymodeLifecycleTrackingInitialized;
-        private static PendingPlaymodeTransition s_PendingPlaymodeTransition;
 
         [CommandAction("editor", "status", editorOnly: true, summary: "Get editor state and play mode info")]
         private static CommandResponse EditorStatus()
@@ -121,9 +113,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 var error = ValidatePlaymodeTransition(enter: true);
                 if (string.IsNullOrEmpty(error))
                 {
-                    s_PendingPlaymodeTransition = PendingPlaymodeTransition.Entering;
-                    EditorApplication.delayCall -= EnterPlaymodeAfterCommandResponse;
-                    EditorApplication.delayCall += EnterPlaymodeAfterCommandResponse;
+                    EditorApplication.isPlaying = true;
                 }
 
                 return error;
@@ -142,9 +132,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 var error = ValidatePlaymodeTransition(enter: false);
                 if (string.IsNullOrEmpty(error))
                 {
-                    s_PendingPlaymodeTransition = PendingPlaymodeTransition.Exiting;
-                    EditorApplication.delayCall -= ExitPlaymodeAfterCommandResponse;
-                    EditorApplication.delayCall += ExitPlaymodeAfterCommandResponse;
+                    EditorApplication.isPlaying = false;
                 }
 
                 return error;
@@ -193,24 +181,6 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 : CommandResponseFactory.ValidationError("Editor console clear is unavailable on this Unity version");
         }
 
-        private static void EnterPlaymodeAfterCommandResponse()
-        {
-            s_PendingPlaymodeTransition = PendingPlaymodeTransition.None;
-            if (string.IsNullOrEmpty(ValidatePlaymodeTransition(enter: true)))
-            {
-                EditorApplication.isPlaying = true;
-            }
-        }
-
-        private static void ExitPlaymodeAfterCommandResponse()
-        {
-            s_PendingPlaymodeTransition = PendingPlaymodeTransition.None;
-            if (string.IsNullOrEmpty(ValidatePlaymodeTransition(enter: false)))
-            {
-                EditorApplication.isPlaying = false;
-            }
-        }
-
         private static string ValidatePlaymodeTransition(bool enter)
         {
             EnsurePlaymodeLifecycleTrackingInitialized();
@@ -220,8 +190,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 EditorApplication.isCompiling,
                 EditorApplication.isUpdating,
                 EditorApplication.isPlaying,
-                lifecycleState,
-                s_PendingPlaymodeTransition);
+                lifecycleState);
         }
 
         private static string ValidatePlaymodeTransition(
@@ -229,8 +198,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             bool isCompiling,
             bool isUpdating,
             bool isPlaying,
-            PlaymodeLifecycleState lifecycleState,
-            PendingPlaymodeTransition pendingTransition)
+            PlaymodeLifecycleState lifecycleState)
         {
             if (isCompiling || isUpdating)
             {
@@ -243,8 +211,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     return "Already in playmode";
                 }
 
-                if (pendingTransition != PendingPlaymodeTransition.None ||
-                    lifecycleState == PlaymodeLifecycleState.EnteringPlaymode ||
+                if (lifecycleState == PlaymodeLifecycleState.EnteringPlaymode ||
                     lifecycleState == PlaymodeLifecycleState.ExitingPlaymode)
                 {
                     return "Cannot enter playmode while another playmode transition is in progress";
@@ -253,8 +220,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 return "";
             }
 
-            if (pendingTransition != PendingPlaymodeTransition.None ||
-                lifecycleState == PlaymodeLifecycleState.EnteringPlaymode ||
+            if (lifecycleState == PlaymodeLifecycleState.EnteringPlaymode ||
                 lifecycleState == PlaymodeLifecycleState.ExitingPlaymode)
             {
                 return "Cannot exit playmode while another playmode transition is in progress";
