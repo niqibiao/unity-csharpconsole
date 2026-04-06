@@ -1,0 +1,10 @@
+.worktrees/
+.tmp
+.claude/
+.claude.meta
+docs
+docs.meta
+CLAUDE.md
+CLAUDE.md.meta
+AGENTS.md
+AGENTS.md.meta

@@ -1,0 +1,23 @@
+{
+    "name": "Zh1Zh1.CSharpConsole.Editor",
+    "rootNamespace": "Zh1Zh1.CSharpConsole",
+    "references": [
+        "Zh1Zh1.CSharpConsole.Runtime"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "dnlib.dll",
+        "Microsoft.CodeAnalysis.dll",
+        "Microsoft.CodeAnalysis.CSharp.dll",
+        "System.Collections.Immutable.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
