@@ -24,7 +24,7 @@
 DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
 ```
 
-<img src="Docs~/images/repl-1.png" width="620" />
+<img src="Docs~/images/repl-1.png" />
 
 ### 2. 跨提交状态保持 — 变量在后续提交中存活
 
@@ -32,7 +32,7 @@ DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
 var cam = Camera.main; cam.transform.position
 ```
 
-<img src="Docs~/images/repl-2.png" width="620" />
+<img src="Docs~/images/repl-2.png" />
 
 ### 3. 访问私有成员 — 编译时绕过访问修饰符
 
@@ -41,7 +41,7 @@ var go = GameObject.Find("Main Camera");
 go.m_InstanceID
 ```
 
-<img src="Docs~/images/repl-3.png" width="620" />
+<img src="Docs~/images/repl-3.png" />
 
 ### 4. LINQ 查询运行中的场景对象
 
@@ -49,7 +49,7 @@ go.m_InstanceID
 string.Join(", ", UnityEngine.Object.FindObjectsOfType<Rigidbody>().Select(x => x.name))
 ```
 
-<img src="Docs~/images/repl-4.png" width="620" />
+<img src="Docs~/images/repl-4.png" />
 
 ### 5. 命令表达式 — 直接调用服务端命令
 
@@ -57,7 +57,7 @@ string.Join(", ", UnityEngine.Object.FindObjectsOfType<Rigidbody>().Select(x => 
 @editor.status()
 ```
 
-<img src="Docs~/images/repl-5.png" width="620" />
+<img src="Docs~/images/repl-5.png" />
 
 ## 安装
 
