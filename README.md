@@ -24,7 +24,7 @@ A Unity package that brings an interactive C# REPL, a command framework, and rem
 DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
 ```
 
-![Immediate evaluation](Docs~/images/repl-1.png)
+<img src="Docs~/images/repl-1.png" width="620" />
 
 ### 2. Cross-submission state — variables survive across submissions
 
@@ -32,7 +32,7 @@ DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
 var cam = Camera.main; cam.transform.position
 ```
 
-![Cross-submission state](Docs~/images/repl-2.png)
+<img src="Docs~/images/repl-2.png" width="620" />
 
 ### 3. Private member access — bypass access modifiers at compile time
 
@@ -41,7 +41,7 @@ var go = GameObject.Find("Main Camera");
 go.m_InstanceID
 ```
 
-![Private member access](Docs~/images/repl-3.png)
+<img src="Docs~/images/repl-3.png" width="620" />
 
 ### 4. LINQ over live scene objects
 
@@ -49,7 +49,7 @@ go.m_InstanceID
 string.Join(", ", UnityEngine.Object.FindObjectsOfType<Rigidbody>().Select(x => x.name))
 ```
 
-![LINQ query](Docs~/images/repl-4.png)
+<img src="Docs~/images/repl-4.png" width="620" />
 
 ### 5. Command expressions — invoke server-side commands directly
 
@@ -57,7 +57,7 @@ string.Join(", ", UnityEngine.Object.FindObjectsOfType<Rigidbody>().Select(x => 
 @editor.status()
 ```
 
-![Command expressions](Docs~/images/repl-5.png)
+<img src="Docs~/images/repl-5.png" width="620" />
 
 ## Installation
 
