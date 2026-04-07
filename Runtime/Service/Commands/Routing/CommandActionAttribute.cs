@@ -10,31 +10,19 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
         public bool editorOnly { get; }
         public bool runOnMainThread { get; }
         public string summary { get; }
-        public bool supportsCliInvocation { get; }
-        public bool supportsStructuredInvocation { get; }
-        public bool supportsAgentInvocation { get; }
-        public string limitations { get; }
 
         public CommandActionAttribute(
             string commandNamespace,
             string action,
             bool editorOnly = false,
             bool runOnMainThread = false,
-            string summary = "",
-            bool supportsCliInvocation = true,
-            bool supportsStructuredInvocation = true,
-            bool supportsAgentInvocation = false,
-            string limitations = "")
+            string summary = "")
         {
             this.commandNamespace = commandNamespace ?? "";
             this.action = action ?? "";
             this.editorOnly = editorOnly;
             this.runOnMainThread = runOnMainThread;
             this.summary = summary ?? "";
-            this.supportsCliInvocation = supportsCliInvocation;
-            this.supportsStructuredInvocation = supportsStructuredInvocation;
-            this.supportsAgentInvocation = supportsAgentInvocation;
-            this.limitations = limitations ?? "";
         }
     }
 }

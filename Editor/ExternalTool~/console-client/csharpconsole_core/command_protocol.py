@@ -49,8 +49,6 @@ def request_command(post_json_func, parse_command_http_response, current_mode_na
     args_json = _coerce_args_json(raw_args)
     payload = {
         "invocation": {
-            "source": "python-repl",
-            "requestedCapability": "command",
             "sessionId": session_id or "",
             "command": {
                 "commandNamespace": command_namespace or "",

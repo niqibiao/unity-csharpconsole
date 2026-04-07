@@ -26,7 +26,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public int height;
         }
 
-        [CommandAction("screenshot", "scene-view", editorOnly: true, summary: "Capture the current Scene View")]
+        [CommandAction("screenshot", "scene_view", editorOnly: true, summary: "Capture the current Scene View")]
         private static CommandResponse CaptureSceneView(string savePath, int width = 0, int height = 0)
         {
             if (string.IsNullOrEmpty(savePath))
@@ -65,7 +65,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             );
         }
 
-        [CommandAction("screenshot", "game-view", editorOnly: true, summary: "Capture the Game View")]
+        [CommandAction("screenshot", "game_view", editorOnly: true, summary: "Capture the Game View")]
         private static CommandResponse CaptureGameView(string savePath, int width = 0, int height = 0, int superSize = 1)
         {
             if (string.IsNullOrEmpty(savePath))
@@ -78,11 +78,19 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 
                     if (EditorApplication.isPlaying)
                     {
+                        // CaptureScreenshot writes asynchronously at end-of-frame.
                         CommandHelpers.EnsureDirectoryExists(savePath);
                         ScreenCapture.CaptureScreenshot(savePath, captureSuperSize);
 
-                        // CaptureScreenshot writes asynchronously at end-of-frame;
-                        // fall through to camera-based capture for an immediate file.
+                        var screenWidth = Screen.width * captureSuperSize;
+                        var screenHeight = Screen.height * captureSuperSize;
+
+                        return (error: (string)null, result: new ScreenshotResult
+                        {
+                            savePath = savePath,
+                            width = screenWidth,
+                            height = screenHeight
+                        });
                     }
 
                     var cam = Camera.main;

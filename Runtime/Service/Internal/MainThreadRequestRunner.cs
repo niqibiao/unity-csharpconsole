@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Zh1Zh1.CSharpConsole.Service;
 using UnityEngine;
 #if UNITY_EDITOR
 using UnityEditor;
@@ -11,7 +12,6 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
 {
     internal sealed class MainThreadRequestRunner
     {
-        private const int DEFAULT_TIMEOUT_MS = 30000;
         private const string DISPATCHER_NOT_INITIALIZED_MESSAGE = "Main-thread dispatcher is not initialized. Ensure MainThreadRequestRunner.InitializeEditor() or InitializeRuntime() is called during startup.";
 
         private readonly static Queue<Action> s_SharedQueue = new Queue<Action>();
@@ -31,6 +31,14 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
         private static int s_DrainScheduled;
 
         private readonly static SemaphoreSlim s_AsyncRunLock = new SemaphoreSlim(1, 1);
+
+        [ThreadStatic]
+        private static bool s_IsExecutingOnMainThread;
+
+        private static bool IsOnMainThread()
+        {
+            return s_IsExecutingOnMainThread;
+        }
 
         public static void InitializeRuntime()
         {
@@ -81,7 +89,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
 
         public static T RunOnMainThread<T>(Func<T> work)
         {
-            return RunOnMainThread(work, DEFAULT_TIMEOUT_MS);
+            return RunOnMainThread(work, ConsoleServiceConfig.MainThreadTimeoutMs);
         }
 
         public static T RunOnMainThread<T>(Func<T> work, int timeoutMs)
@@ -89,6 +97,12 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
             if (work == null)
             {
                 return default;
+            }
+
+            // If already on the main thread, execute synchronously to avoid deadlock.
+            if (IsOnMainThread())
+            {
+                return work();
             }
 
             var postToMainThread = GetPlatformPostToMainThreadOrThrow();
@@ -128,7 +142,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
 
         public static Task<T> RunOnMainThreadAsync<T>(Func<Task<T>> work)
         {
-            return RunOnMainThreadAsync(work, DEFAULT_TIMEOUT_MS);
+            return RunOnMainThreadAsync(work, ConsoleServiceConfig.MainThreadTimeoutMs);
         }
 
         public static Task<T> RunOnMainThreadAsync<T>(Func<Task<T>> work, int timeoutMs)
@@ -136,6 +150,12 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
             if (work == null)
             {
                 return Task.FromResult(default(T));
+            }
+
+            // If already on the main thread, execute synchronously to avoid deadlock.
+            if (IsOnMainThread())
+            {
+                return work();
             }
 
             return RunOnMainThreadAsyncCore(work, timeoutMs);
@@ -254,11 +274,16 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
 
                 try
                 {
+                    s_IsExecutingOnMainThread = true;
                     action();
                 }
                 catch (Exception e)
                 {
                     Debug.LogException(e);
+                }
+                finally
+                {
+                    s_IsExecutingOnMainThread = false;
                 }
             }
         }
@@ -302,11 +327,16 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
             {
                 try
                 {
+                    s_IsExecutingOnMainThread = true;
                     action();
                 }
                 catch (Exception e)
                 {
                     Debug.LogException(e);
+                }
+                finally
+                {
+                    s_IsExecutingOnMainThread = false;
                 }
             }
         }
@@ -330,11 +360,16 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
 
                 try
                 {
+                    s_IsExecutingOnMainThread = true;
                     next();
                 }
                 catch (Exception e)
                 {
                     Debug.LogException(e);
+                }
+                finally
+                {
+                    s_IsExecutingOnMainThread = false;
                 }
             }
         }

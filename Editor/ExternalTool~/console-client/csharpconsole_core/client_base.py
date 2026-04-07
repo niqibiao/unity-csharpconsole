@@ -5,6 +5,23 @@ import requests
 
 from .models import make_result, new_run_id
 
+# Timeout constants (seconds).
+# Editor execution is fast (no DLL transfer).
+TIMEOUT_EXEC_EDITOR = 10
+# Runtime needs compile + DLL upload.
+TIMEOUT_EXEC_RUNTIME = 30
+# Completion should feel instant, fail fast.
+TIMEOUT_COMPLETION = 2
+# Health is a quick check.
+TIMEOUT_HEALTH = 2
+# Refresh is a quick request (not the actual refresh duration).
+TIMEOUT_REFRESH = 2
+# Compiled payload execution over network.
+TIMEOUT_EXEC_COMPILED = 30
+# Compile-only requests.
+TIMEOUT_COMPILE_EDITOR = 10
+TIMEOUT_COMPILE_RUNTIME = 30
+
 
 def generate_session_id(explicit_session=None):
     if explicit_session:
@@ -32,7 +49,7 @@ def execute_editor_request(post_json, parse_text_http_response, get_default_defi
         "content": message,
     }
     try:
-        raw = post_json("editor", payload, 10)
+        raw = post_json("editor", payload, TIMEOUT_EXEC_EDITOR)
         if invalidate_completion:
             invalidate_completion()
         return parse_text_http_response(raw, "execute", session_id, "editor", run_id, (time.time() - start) * 1000)
@@ -54,7 +71,7 @@ def execute_runtime_request(post_json, parse_text_http_response, get_default_def
         "runtimeDllPath": runtime_dll_path,
     }
     try:
-        raw = post_json("compile", payload, 30)
+        raw = post_json("compile", payload, TIMEOUT_EXEC_RUNTIME)
         if invalidate_completion:
             invalidate_completion()
         return parse_text_http_response(raw, "execute", session_id, "runtime", run_id, (time.time() - start) * 1000)
@@ -72,7 +89,7 @@ def compile_editor_request(post_json, parse_compile_only_http_response, get_defa
         "content": message,
     }
     try:
-        raw = post_json("editor-compile", payload, 10)
+        raw = post_json("editor-compile", payload, TIMEOUT_COMPILE_EDITOR)
         return parse_compile_only_http_response(raw, session_id, "editor", run_id, (time.time() - start) * 1000)
     except requests.RequestException as e:
         return make_result(False, "compile", "system_error", 3, f"Error post: {e}", session_id, "editor", run_id, (time.time() - start) * 1000)
@@ -93,7 +110,7 @@ def compile_runtime_request(post_json, parse_compile_only_http_response, get_def
         "runtimeDllPath": runtime_dll_path,
     }
     try:
-        raw = post_json("runtime-compile", payload, 30)
+        raw = post_json("runtime-compile", payload, TIMEOUT_COMPILE_RUNTIME)
         return parse_compile_only_http_response(raw, session_id, "runtime", run_id, (time.time() - start) * 1000)
     except requests.RequestException as e:
         return make_result(False, "compile", "system_error", 3, f"Error post: {e}", session_id, "runtime", run_id, (time.time() - start) * 1000)
@@ -111,7 +128,7 @@ def execute_compiled_payload(post_json_to_execute, parse_text_http_response, cur
         "className": class_name,
     }
     try:
-        raw = post_json_to_execute(payload, 30)
+        raw = post_json_to_execute(payload, TIMEOUT_EXEC_COMPILED)
         return parse_text_http_response(raw, "execute", session_id, current_mode_name(), run_id, (time.time() - start) * 1000)
     except requests.RequestException as e:
         return make_result(False, "execute", "system_error", 3, f"Error post: {e}", session_id, current_mode_name(), run_id, (time.time() - start) * 1000)
@@ -129,7 +146,7 @@ def request_completion(post_json, parse_completion_http_response, current_mode_n
         "runtimeDllPath": runtime_dll_path if runtime_mode else "",
     }
     try:
-        raw = post_json("completion", payload, 2)
+        raw = post_json("completion", payload, TIMEOUT_COMPLETION)
         return parse_completion_http_response(raw, session_id, current_mode_name(), run_id, (time.time() - start) * 1000)
     except requests.RequestException as e:
         return make_result(False, "compile", "system_error", 3, f"Completion request failed: {e}", session_id, current_mode_name(), run_id, (time.time() - start) * 1000)
@@ -141,7 +158,7 @@ def request_health(post_json, parse_health_http_response, current_mode_name):
     start = time.time()
     run_id = new_run_id()
     try:
-        raw = post_json("health", {}, 2)
+        raw = post_json("health", {}, TIMEOUT_HEALTH)
         return parse_health_http_response(raw, current_mode_name(), run_id, (time.time() - start) * 1000)
     except requests.RequestException as e:
         return make_result(False, "bootstrap", "system_error", 3, f"Health check failed: {e}", "", current_mode_name(), run_id, (time.time() - start) * 1000)
@@ -153,7 +170,7 @@ def request_refresh(post_json, parse_refresh_http_response, current_mode_name):
     start = time.time()
     run_id = new_run_id()
     try:
-        raw = post_json("refresh", {}, 2)
+        raw = post_json("refresh", {}, TIMEOUT_REFRESH)
         return parse_refresh_http_response(raw, current_mode_name(), run_id, (time.time() - start) * 1000)
     except requests.RequestException as e:
         return make_result(False, "bootstrap", "system_error", 3, f"Refresh request failed: {e}", "", current_mode_name(), run_id, (time.time() - start) * 1000)

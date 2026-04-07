@@ -34,12 +34,13 @@ namespace Zh1Zh1.CSharpConsole.Service
 
         private static HttpListener s_Listener;
         private static bool s_Initialized;
-        private readonly static HttpClient s_HttpClient = new() { Timeout = TimeSpan.FromSeconds(30) };
+        private readonly static HttpClient s_HttpClient = new() { Timeout = TimeSpan.FromMilliseconds(ConsoleServiceConfig.HttpClientTimeoutMs) };
         private readonly static ReplServiceRegistry s_ReplServiceRegistry = new();
         private readonly static HttpEnvelopeFactory s_EnvelopeFactory = new();
         private static ConsoleHttpServiceDependencies s_Dependencies;
         private static HealthEndpointHandler s_HealthEndpointHandler;
         private static CommandEndpointHandler s_CommandEndpointHandler;
+        private static BatchEndpointHandler s_BatchEndpointHandler;
 #if UNITY_EDITOR
         private static CompletionEndpointHandler s_CompletionEndpointHandler;
 #endif
@@ -56,6 +57,7 @@ namespace Zh1Zh1.CSharpConsole.Service
                 (sessionId, runtimeDllPath) => s_ReplServiceRegistry.FetchRuntimeREPLCompiler(sessionId, runtimeDllPath, s_RuntimeREPLCompilerGenerator));
             s_HealthEndpointHandler ??= new HealthEndpointHandler(s_Dependencies);
             s_CommandEndpointHandler ??= new CommandEndpointHandler(s_Dependencies);
+            s_BatchEndpointHandler ??= new BatchEndpointHandler(s_Dependencies);
 #if UNITY_EDITOR
             s_CompletionEndpointHandler ??= new CompletionEndpointHandler(s_Dependencies);
 #endif
@@ -301,6 +303,11 @@ namespace Zh1Zh1.CSharpConsole.Service
                 await s_CommandEndpointHandler.Handle(context);
                 return true;
             }
+            if (path.EndsWith("/batch"))
+            {
+                await s_BatchEndpointHandler.Handle(context);
+                return true;
+            }
             if (path.EndsWith("/health"))
             {
                 await s_HealthEndpointHandler.Handle(context);
@@ -380,7 +387,7 @@ namespace Zh1Zh1.CSharpConsole.Service
                 {
                     if (reset)
                     {
-                        s_ReplServiceRegistry.RemoveCompilerByKey(uuid);
+                        s_ReplServiceRegistry.RemoveCompilerByKey((uuid, ""));
                         s_ReplServiceRegistry.RemoveExecutor(uuid);
                         return "REPL reset";
                     }
@@ -456,6 +463,7 @@ namespace Zh1Zh1.CSharpConsole.Service
 
         internal static HealthResponse BuildHealthResponseSnapshot()
         {
+            s_ReplServiceRegistry.EvictIdleSessions();
             var state = GetRefreshStateSnapshot();
             return new HealthResponse
             {
@@ -470,6 +478,9 @@ namespace Zh1Zh1.CSharpConsole.Service
                 refreshing = IsActiveRefreshPhase(state.PhaseValue),
                 generation = Mathf.Max(0, state.generation),
                 editorState = GetEditorState(state),
+                packageVersion = ConsoleServiceConfig.PackageVersion,
+                protocolVersion = ConsoleServiceConfig.ProtocolVersion,
+                unityVersion = Application.unityVersion,
                 operation = state
             };
         }
@@ -664,11 +675,6 @@ namespace Zh1Zh1.CSharpConsole.Service
 #endif
 
 #if UNITY_EDITOR
-        internal static T RunOnEditorThread<T>(Func<T> work)
-        {
-            return MainThreadRequestRunner.RunOnMainThread(work);
-        }
-
         public static void RegisterRefreshLifecycleCallbacks()
         {
             CompilationPipeline.compilationStarted -= OnCompilationStarted;
@@ -688,6 +694,24 @@ namespace Zh1Zh1.CSharpConsole.Service
             RefreshResponse responseData;
             try
             {
+                var body = await ConsoleHttpServiceDependencies.ReadRequestBodyAsync(context);
+                var request = !string.IsNullOrWhiteSpace(body)
+                    ? JsonUtility.FromJson<RefreshRequest>(body)
+                    : null;
+
+                var exitPlayModeRequested = false;
+                if (request != null && request.exitPlayModeIfNeeded)
+                {
+                    MainThreadRequestRunner.Post(() =>
+                    {
+                        if (EditorApplication.isPlaying)
+                        {
+                            EditorApplication.isPlaying = false;
+                        }
+                    });
+                    exitPlayModeRequested = true;
+                }
+
                 var current = GetRefreshStateSnapshot();
                 if (IsActiveRefreshPhase(current.PhaseValue))
                 {
@@ -697,6 +721,7 @@ namespace Zh1Zh1.CSharpConsole.Service
                         accepted = false,
                         sessionsCleared = false,
                         refreshing = true,
+                        exitPlayModeRequested = exitPlayModeRequested,
                         generation = current.generation,
                         message = "Refresh already in progress",
                         operation = current
@@ -728,6 +753,7 @@ namespace Zh1Zh1.CSharpConsole.Service
                         accepted = true,
                         sessionsCleared = true,
                         refreshing = true,
+                        exitPlayModeRequested = exitPlayModeRequested,
                         generation = nextState.generation,
                         message = "Refresh and script compilation scheduled. Existing compiler/executor sessions were cleared.",
                         operation = nextState

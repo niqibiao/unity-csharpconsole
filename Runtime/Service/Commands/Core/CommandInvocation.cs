@@ -1,13 +1,10 @@
 using System;
-using UnityEngine;
 
 namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
 {
     [Serializable]
     internal sealed class CommandInvocation
     {
-        public string source = "legacy-http";
-        public string requestedCapability = "command";
         public string commandNamespace = "";
         public string action = "";
         public string sessionId = "";
@@ -32,16 +29,6 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
             if (invocation == null || payload == null)
             {
                 return;
-            }
-
-            if (!string.IsNullOrWhiteSpace(payload.source))
-            {
-                invocation.source = payload.source;
-            }
-
-            if (!string.IsNullOrWhiteSpace(payload.requestedCapability))
-            {
-                invocation.requestedCapability = payload.requestedCapability;
             }
 
             if (!string.IsNullOrWhiteSpace(payload.sessionId))

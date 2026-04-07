@@ -18,7 +18,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             router.RegisterAttributedHandlers(typeof(CommandCatalogCommandActions));
         }
 
-        [CommandAction("command", "list", summary: "List registered commands", supportsAgentInvocation: true)]
+        [CommandAction("command", "list", summary: "List registered commands")]
         private static CommandResponse ListCommands()
         {
             var result = new CommandCatalogResult

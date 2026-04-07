@@ -6,6 +6,7 @@ using UnityEngine.SceneManagement;
 #endif
 using Zh1Zh1.CSharpConsole.Service.Commands.Core;
 using Zh1Zh1.CSharpConsole.Service.Commands.Routing;
+using Zh1Zh1.CSharpConsole.Service.Internal;
 
 namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 {
@@ -41,7 +42,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction("scene", "hierarchy", editorOnly: true, summary: "Get the full scene hierarchy tree")]
         private static CommandResponse Hierarchy(int depth = -1, bool includeComponents = false)
         {
-            var result = ConsoleHttpService.RunOnEditorThread(() =>
+            var result = MainThreadRequestRunner.RunOnMainThread(() =>
             {
                 var scene = SceneManager.GetActiveScene();
                 var rootObjects = scene.GetRootGameObjects();

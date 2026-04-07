@@ -91,8 +91,10 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 
                     if (!string.IsNullOrEmpty(parentPath))
                     {
-                        var parent = GameObject.Find(parentPath);
-                        if (parent != null) instance.transform.SetParent(parent.transform, false);
+                        var parent = CommandHelpers.FindByPath(parentPath);
+                        if (parent == null)
+                            return (error: $"No GameObject found at parent path '{parentPath}'", result: (InstantiateResult)null);
+                        instance.transform.SetParent(parent.transform, false);
                     }
 
                     if (position.HasValue)

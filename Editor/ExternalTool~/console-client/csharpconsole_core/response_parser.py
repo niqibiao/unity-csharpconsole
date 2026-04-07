@@ -2,6 +2,12 @@ import json
 
 from .models import make_result
 
+# Standard response type values matching C# HttpEnvelopeFactory output.
+TYPE_COMPILE_ERROR = "compile_error"
+TYPE_RUNTIME_ERROR = "runtime_error"
+TYPE_VALIDATION_ERROR = "validation_error"
+TYPE_SYSTEM_ERROR = "system_error"
+
 
 def _try_load_json_object(raw):
     if isinstance(raw, dict):
@@ -40,9 +46,9 @@ def _decode_data_json(raw_data):
 def _exit_code_from_type(ok, result_type):
     if ok:
         return 0
-    if result_type in {"validation_error", "compile_error"}:
+    if result_type in {TYPE_VALIDATION_ERROR, TYPE_COMPILE_ERROR}:
         return 1
-    if result_type == "runtime_error":
+    if result_type == TYPE_RUNTIME_ERROR:
         return 2
     return 3
 
@@ -94,21 +100,29 @@ def _extract_text_from_data(data):
 
 
 def classify_response_text(text, default_stage):
+    """Legacy fallback classifier for non-envelope plain-text responses.
+
+    When the C# service returns a structured envelope (the normal case),
+    classification is handled by _build_envelope_result using the envelope's
+    type field.  This function is only reached when the response is not a
+    valid JSON envelope — typically from older service versions or raw
+    error strings.
+    """
     text = (text or "").strip()
     if not text:
         return True, default_stage, "", 0, "OK"
 
     lowered = text.lower()
     if lowered.startswith("compile failed"):
-        return False, "compile", "compile_error", 1, text
+        return False, "compile", TYPE_COMPILE_ERROR, 1, text
     if "forward failed" in lowered:
-        return False, "execute", "runtime_error", 2, text
+        return False, "execute", TYPE_RUNTIME_ERROR, 2, text
     if lowered.startswith("timeout:"):
-        return False, "execute", "runtime_error", 2, text
+        return False, "execute", TYPE_RUNTIME_ERROR, 2, text
     if "error post:" in lowered:
-        return False, "unknown", "system_error", 3, text
+        return False, "unknown", TYPE_SYSTEM_ERROR, 3, text
     if "exception" in lowered or "load error:" in lowered or "execution error:" in lowered:
-        return False, default_stage, "runtime_error", 2, text
+        return False, default_stage, TYPE_RUNTIME_ERROR, 2, text
     return True, default_stage, "", 0, text
 
 
@@ -196,7 +210,6 @@ def parse_command_http_response(raw, session_id, mode, run_id, duration_ms):
     result["data"] = {
         "command": command_payload.get("command") or {},
         "resultJson": parsed_result_json,
-        "nextAction": command_payload.get("nextAction", ""),
     }
     return result
 

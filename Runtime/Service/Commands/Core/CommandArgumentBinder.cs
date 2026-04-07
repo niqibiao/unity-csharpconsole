@@ -37,6 +37,11 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
 
             if (underlyingType.IsGenericType)
             {
+                if (underlyingType.GetGenericTypeDefinition() == typeof(List<>))
+                {
+                    return IsSupportedBoundParameterType(underlyingType.GetGenericArguments()[0]);
+                }
+
                 return false;
             }
 
@@ -56,6 +61,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
             errorResponse = null;
 
             Dictionary<string, string> argsByName = null;
+            var positionalIndex = 0;
             for (var i = 0; i < parameters.Length; i++)
             {
                 var parameter = parameters[i];
@@ -79,16 +85,23 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
 
                 if (!argsByName.TryGetValue(parameter.Name ?? string.Empty, out var rawValue))
                 {
-                    if (parameter.HasDefaultValue)
+                    var positionalKey = $"__pos{positionalIndex}";
+                    if (argsByName.TryGetValue(positionalKey, out rawValue))
+                    {
+                        positionalIndex++;
+                    }
+                    else if (parameter.HasDefaultValue)
                     {
                         arguments[i] = GetDefaultValue(parameter);
                         continue;
                     }
-
-                    errorResponse = CommandResponseFactory.ValidationError(
-                        invocation,
-                        $"Missing required argument '{parameter.Name}' for {invocation.commandNamespace}/{invocation.action}");
-                    return false;
+                    else
+                    {
+                        errorResponse = CommandResponseFactory.ValidationError(
+                            invocation,
+                            $"Missing required argument '{parameter.Name}' for {invocation.commandNamespace}/{invocation.action}");
+                        return false;
+                    }
                 }
 
                 if (!TryConvertValue(rawValue, parameter.ParameterType, out var value, out var conversionError))
@@ -297,6 +310,11 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
                 return false;
             }
 
+            if (targetType.IsGenericType && targetType.GetGenericTypeDefinition() == typeof(List<>))
+            {
+                return TryConvertListValue(rawValue, targetType, out value, out error);
+            }
+
             if (targetType.IsArray)
             {
                 return TryConvertArrayValue(rawValue, targetType, out value, out error);
@@ -339,6 +357,28 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
                 error = e.Message;
                 return false;
             }
+        }
+
+        private static bool TryConvertListValue(string rawValue, Type listType, out object value, out string error)
+        {
+            var elementType = listType.GetGenericArguments()[0];
+            var arrayType = elementType.MakeArrayType();
+            if (!TryConvertArrayValue(rawValue, arrayType, out var arrayValue, out error))
+            {
+                value = null;
+                return false;
+            }
+
+            var array = (Array)arrayValue;
+            var list = (System.Collections.IList)Activator.CreateInstance(listType, array.Length);
+            for (var i = 0; i < array.Length; i++)
+            {
+                list.Add(array.GetValue(i));
+            }
+
+            value = list;
+            error = null;
+            return true;
         }
 
         private static bool TryParseArgsObject(string argsJson, out Dictionary<string, string> properties, out string error)

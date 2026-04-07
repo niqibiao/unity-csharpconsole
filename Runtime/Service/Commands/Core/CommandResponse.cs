@@ -12,7 +12,5 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
         public string action = "";
         public string sessionId = "";
         public string resultJson = "";
-        public string nextAction = "";
-        public string metadataJson = "{}";
     }
 }

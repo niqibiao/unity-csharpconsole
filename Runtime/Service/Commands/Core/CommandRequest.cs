@@ -15,8 +15,6 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
         [Serializable]
         public sealed class InvocationPayload
         {
-            public string source = "";
-            public string requestedCapability = "";
             public string sessionId = "";
             public string argsJson = "";
             public InvocationCommand command;

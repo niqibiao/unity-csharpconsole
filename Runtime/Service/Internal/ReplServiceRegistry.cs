@@ -8,90 +8,70 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
 {
     internal sealed class ReplServiceRegistry
     {
-        private readonly ConcurrentDictionary<string, IREPLExecutor> _executors = new();
-        private readonly ConcurrentDictionary<string, IREPLCompiler> _compilers = new();
-        private readonly ConcurrentDictionary<string, string> _compilerSessionIds = new();
+        private readonly ConcurrentDictionary<(string uuid, string path), IREPLExecutor> _executors = new();
+        private readonly ConcurrentDictionary<(string uuid, string path), IREPLCompiler> _compilers = new();
+        private readonly ConcurrentDictionary<string, double> _lastAccessTimes = new();
+        private const double DEFAULT_IDLE_TIMEOUT_SECONDS = 21600.0; // 6 hours
 
         public IREPLCompiler FetchEditorREPLCompiler(string uuid, Func<IREPLCompiler> generator)
         {
-            var compiler = _compilers.GetOrAdd(uuid, _ => generator.Invoke());
-            _compilerSessionIds[uuid] = uuid;
+            var key = (uuid ?? "", "");
+            var compiler = _compilers.GetOrAdd(key, _ => generator.Invoke());
+            TouchSession(uuid ?? "");
             return compiler;
         }
 
         public IREPLExecutor FetchExecutor(string uuid, Func<IREPLExecutor> generator)
         {
-            return _executors.GetOrAdd(uuid, _ => generator.Invoke());
+            var key = (uuid ?? "", "");
+            var executor = _executors.GetOrAdd(key, _ => generator.Invoke());
+            TouchSession(uuid ?? "");
+            return executor;
         }
 
         public IREPLCompiler FetchRuntimeREPLCompiler(string uuid, string runtimeDllPath, Func<string, IREPLCompiler> generator)
         {
-            // Recreate the compiler when runtimeDllPath changes.
-            var key = $"{uuid}_{runtimeDllPath ?? ""}";
+            var key = (uuid ?? "", runtimeDllPath ?? "");
             var compiler = _compilers.GetOrAdd(key, _ => generator.Invoke(runtimeDllPath));
-            _compilerSessionIds[key] = uuid;
+            TouchSession(uuid ?? "");
             return compiler;
         }
 
-        public bool TryGetCompilerSessionId(string compilerKey, out string sessionId)
+        public bool RemoveCompilerByKey((string uuid, string path) compilerKey)
         {
-            if (string.IsNullOrEmpty(compilerKey))
-            {
-                sessionId = string.Empty;
-                return false;
-            }
-
-            if (_compilerSessionIds.TryGetValue(compilerKey, out sessionId) && !string.IsNullOrEmpty(sessionId))
-            {
-                return true;
-            }
-
-            // Fallback for older/in-memory keys when mapping has not been recorded yet.
-            // Preserve the full key as session id to avoid ambiguous underscore parsing.
-            sessionId = compilerKey;
-            return true;
-        }
-
-        public bool RemoveCompilerByKey(string compilerKey)
-        {
-            if (_compilers.TryRemove(compilerKey, out _))
-            {
-                _compilerSessionIds.TryRemove(compilerKey, out _);
-                return true;
-            }
-
-            _compilerSessionIds.TryRemove(compilerKey, out _);
-            return false;
+            return _compilers.TryRemove(compilerKey, out _);
         }
 
         public bool RemoveExecutor(string sessionId)
         {
-            return _executors.TryRemove(sessionId, out _);
+            var key = (sessionId ?? "", "");
+            return _executors.TryRemove(key, out _);
         }
 
         public bool HasCompilerForSession(string sessionId)
         {
-            return _compilers.Keys.Any(key => TryGetCompilerSessionId(key, out var keySessionId) && string.Equals(keySessionId, sessionId, StringComparison.Ordinal));
+            return _compilers.Keys.Any(key => string.Equals(key.uuid, sessionId, StringComparison.Ordinal));
         }
 
         public bool HasExecutorForSession(string sessionId)
         {
-            return _executors.ContainsKey(sessionId);
+            var key = (sessionId ?? "", "");
+            return _executors.ContainsKey(key);
         }
 
         public bool ResetSessionState(string sessionId)
         {
-            var removedAny = _executors.TryRemove(sessionId, out _);
+            var removedAny = _executors.TryRemove((sessionId ?? "", ""), out _);
             foreach (var key in _compilers.Keys)
             {
-                if (TryGetCompilerSessionId(key, out var keySessionId)
-                    && string.Equals(keySessionId, sessionId, StringComparison.Ordinal)
-                    && RemoveCompilerByKey(key))
+                if (string.Equals(key.uuid, sessionId, StringComparison.Ordinal)
+                    && _compilers.TryRemove(key, out _))
                 {
                     removedAny = true;
                 }
             }
 
+            _lastAccessTimes.TryRemove(sessionId, out _);
             return removedAny;
         }
 
@@ -99,8 +79,9 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
         {
             var states = new Dictionary<string, SessionStateInfo>(StringComparer.Ordinal);
 
-            foreach (var sessionId in _executors.Keys)
+            foreach (var key in _executors.Keys)
             {
+                var sessionId = key.uuid;
                 if (string.IsNullOrEmpty(sessionId))
                 {
                     continue;
@@ -112,7 +93,8 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
 
             foreach (var key in _compilers.Keys)
             {
-                if (!TryGetCompilerSessionId(key, out var sessionId) || string.IsNullOrEmpty(sessionId))
+                var sessionId = key.uuid;
+                if (string.IsNullOrEmpty(sessionId))
                 {
                     continue;
                 }
@@ -128,10 +110,9 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
         {
             foreach (var key in _compilers.Keys)
             {
-                if (TryGetCompilerSessionId(key, out var keySessionId)
-                    && string.Equals(keySessionId, sessionId, StringComparison.Ordinal))
+                if (string.Equals(key.uuid, sessionId, StringComparison.Ordinal))
                 {
-                    RemoveCompilerByKey(key);
+                    _compilers.TryRemove(key, out _);
                 }
             }
         }
@@ -151,7 +132,39 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
         {
             _executors.Clear();
             _compilers.Clear();
-            _compilerSessionIds.Clear();
+            _lastAccessTimes.Clear();
         }
+
+        public int EvictIdleSessions(double idleTimeoutSeconds = DEFAULT_IDLE_TIMEOUT_SECONDS)
+        {
+            var now = ServiceTimestamp.Now();
+            var evictedCount = 0;
+
+            foreach (var kvp in _lastAccessTimes.ToArray())
+            {
+                var sessionId = kvp.Key;
+                var lastAccess = kvp.Value;
+                if ((now - lastAccess) < idleTimeoutSeconds)
+                {
+                    continue;
+                }
+
+                if (ResetSessionState(sessionId))
+                {
+                    evictedCount++;
+                }
+            }
+
+            return evictedCount;
+        }
+
+        private void TouchSession(string sessionId)
+        {
+            if (!string.IsNullOrEmpty(sessionId))
+            {
+                _lastAccessTimes[sessionId] = ServiceTimestamp.Now();
+            }
+        }
+
     }
 }

@@ -7,6 +7,7 @@ using UnityEngine;
 #endif
 using Zh1Zh1.CSharpConsole.Service.Commands.Core;
 using Zh1Zh1.CSharpConsole.Service.Commands.Routing;
+using Zh1Zh1.CSharpConsole.Service.Internal;
 
 namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 {
@@ -75,7 +76,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         private static CommandResponse EditorStatus()
         {
             var health = ConsoleHttpService.BuildHealthResponseSnapshot();
-            var result = ConsoleHttpService.RunOnEditorThread(() => new EditorStatusResult
+            var result = MainThreadRequestRunner.RunOnMainThread(() => new EditorStatusResult
             {
                 initialized = health.initialized,
                 port = health.port,
@@ -94,7 +95,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction("editor", "playmode.status", editorOnly: true, summary: "Get current play mode state")]
         private static CommandResponse PlaymodeStatus()
         {
-            var result = ConsoleHttpService.RunOnEditorThread(() => new PlaymodeStatusResult
+            var result = MainThreadRequestRunner.RunOnMainThread(() => new PlaymodeStatusResult
             {
                 isPlaying = EditorApplication.isPlaying,
                 isPaused = EditorApplication.isPaused,
@@ -106,40 +107,28 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         }
 
         [CommandAction("editor", "playmode.enter", editorOnly: true, summary: "Enter play mode")]
-        private static CommandResponse EnterPlaymode()
-        {
-            var validationError = ConsoleHttpService.RunOnEditorThread(() =>
-            {
-                var error = ValidatePlaymodeTransition(enter: true);
-                if (string.IsNullOrEmpty(error))
-                {
-                    EditorApplication.isPlaying = true;
-                }
-
-                return error;
-            });
-
-            return string.IsNullOrEmpty(validationError)
-                ? CommandResponseFactory.Ok("Requested enter playmode", "{}")
-                : CommandResponseFactory.ValidationError(validationError);
-        }
+        private static CommandResponse EnterPlaymode() => SetPlaymode(enter: true);
 
         [CommandAction("editor", "playmode.exit", editorOnly: true, summary: "Exit play mode")]
-        private static CommandResponse ExitPlaymode()
-        {
-            var validationError = ConsoleHttpService.RunOnEditorThread(() =>
-            {
-                var error = ValidatePlaymodeTransition(enter: false);
-                if (string.IsNullOrEmpty(error))
-                {
-                    EditorApplication.isPlaying = false;
-                }
+        private static CommandResponse ExitPlaymode() => SetPlaymode(enter: false);
 
-                return error;
-            });
+        private static CommandResponse SetPlaymode(bool enter)
+        {
+            var validationError = MainThreadRequestRunner.RunOnMainThread(() => ValidatePlaymodeTransition(enter));
+
+            if (string.IsNullOrEmpty(validationError))
+            {
+                MainThreadRequestRunner.Post(() =>
+                {
+                    if (EditorApplication.isPlaying != enter)
+                    {
+                        EditorApplication.isPlaying = enter;
+                    }
+                });
+            }
 
             return string.IsNullOrEmpty(validationError)
-                ? CommandResponseFactory.Ok("Requested exit playmode", "{}")
+                ? CommandResponseFactory.Ok($"Requested {(enter ? "enter" : "exit")} playmode", "{}")
                 : CommandResponseFactory.ValidationError(validationError);
         }
 
@@ -168,14 +157,14 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction("editor", "console.get", editorOnly: true, summary: "Get editor console log entries")]
         private static CommandResponse GetConsole()
         {
-            var result = ConsoleHttpService.RunOnEditorThread(GetConsoleEntries);
+            var result = MainThreadRequestRunner.RunOnMainThread(GetConsoleEntries);
             return CommandResponseFactory.Ok("Fetched editor console entries", JsonUtility.ToJson(result));
         }
 
         [CommandAction("editor", "console.clear", editorOnly: true, summary: "Clear the editor console")]
         private static CommandResponse ClearConsole()
         {
-            var cleared = ConsoleHttpService.RunOnEditorThread(ClearConsoleEntries);
+            var cleared = MainThreadRequestRunner.RunOnMainThread(ClearConsoleEntries);
             return cleared
                 ? CommandResponseFactory.Ok("Cleared editor console", "{}")
                 : CommandResponseFactory.ValidationError("Editor console clear is unavailable on this Unity version");

@@ -6,17 +6,11 @@ using Zh1Zh1.CSharpConsole.Service.Commands.Core;
 
 namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
 {
-    internal sealed class CommandHandlerBinding
-    {
-        public Func<CommandInvocation, CommandResponse> invoker;
-        public CommandArgumentDescriptor[] arguments = Array.Empty<CommandArgumentDescriptor>();
-    }
-
     internal static class CommandHandlerBindingFactory
     {
-        private static readonly Type s_BoolStringTupleType = typeof(ValueTuple<bool, string>);
+        private readonly static Type s_BoolStringTupleType = typeof(ValueTuple<bool, string>);
 
-        internal static CommandHandlerBinding Create(Type ownerType, MethodInfo method, CommandActionAttribute attribute)
+        internal static (Func<CommandInvocation, CommandResponse> invoker, CommandArgumentDescriptor[] arguments) Create(Type ownerType, MethodInfo method, CommandActionAttribute attribute)
         {
             ValidateHandlerSignature(ownerType, method, attribute);
 
@@ -24,11 +18,10 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
             var boundParameters = CollectBoundParameters(ownerType, method, parameters);
             var returnType = method.ReturnType;
 
-            return new CommandHandlerBinding
-            {
-                invoker = invocation => Invoke(method, parameters, returnType, invocation),
-                arguments = BuildArgumentDescriptors(boundParameters)
-            };
+            return (
+                invocation => Invoke(method, parameters, returnType, invocation),
+                BuildArgumentDescriptors(boundParameters)
+            );
         }
 
         private static CommandResponse Invoke(MethodInfo method, ParameterInfo[] parameters, Type returnType, CommandInvocation invocation)

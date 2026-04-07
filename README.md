@@ -1,28 +1,43 @@
+<div align="center">
+
 # CSharp Console
+
+**Interactive C# REPL for Unity — powered by Roslyn**
+
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Unity](https://img.shields.io/badge/Unity-2022.3%2B-black.svg?logo=unity)](https://unity.com/)
+[![Claude Code](https://img.shields.io/badge/Claude_Code-blueviolet.svg?logo=anthropic)](https://claude.ai/code)
+[![UPM](https://img.shields.io/badge/UPM-Package-brightgreen.svg)](package.json)
+
+Execute C# code on the fly in Unity Editor & Runtime — no compilation wait, no boilerplate,<br/>
+full access to your project's live state. **Editor zero-config, Runtime just works with HybridCLR.**
+
+[Features](#features) · [Installation](#installation) · [Quick Start](#quick-start) · [REPL Usage](#repl-usage) · [Extending Commands](#extending-commands)
 
 English | [中文](README_zh.md)
 
-A Unity package that brings an interactive C# REPL, a command framework, and remote execution capabilities to the Unity Editor and Runtime, powered by Roslyn.
+</div>
 
-## Related Projects
-
-- [unity-cli-plugin](https://github.com/niqibiao/unity-cli-plugin) — A non-interactive CLI that connects to the same CSharp Console HTTP service, designed for scripting and automation workflows.
+---
 
 ## Features
 
-- **Interactive REPL** — Continuous Roslyn-based script submissions with persistent session state
-- **Top-level syntax** — Write statements directly, no `class` / `Main` boilerplate required
-- **Semantic completion** — Member, namespace, and type completions from the Roslyn compiler
-- **Command framework** — Extensible `[CommandAction]` commands with automatic parameter binding
-- **Remote runtime execution** — Compile in the Editor, execute on a connected Player (IL2CPP via HybridCLR)
-- **Cross-submission state** — Variables, `using` directives, and submission state persist across executions
-- **Private member access** — Bypass access modifiers at compile time to inspect `private` / `protected` / `internal` members
+### Core Capabilities
 
-### Demo
+| | Feature | Description |
+|:--:|---------|-------------|
+| **>\_** | **Interactive REPL** | Roslyn-based script submissions with persistent session state — variables, `using` directives, and types survive across executions |
+| **#** | **Top-level Syntax** | Write statements directly. No `class`, no `Main`, no boilerplate |
+| **@** | **Command Framework** | Extensible `[CommandAction]` commands with automatic JSON-to-parameter binding (positional & named args), `/batch` endpoint for multi-command workflows |
+| **Tab** | **Semantic Completion** | Real-time member, namespace, and type completions directly from Roslyn |
+| **🔓** | **Private Member Access** | Bypass `private` / `protected` / `internal` access modifiers at compile time for deep inspection |
+| **📡** | **Remote Execution** | Compile in the Editor, execute on a connected Player build (IL2CPP via HybridCLR) |
 
-<img src="Docs~/images/repl-0.gif" />
+### How It Looks
 
-### 1. Immediate evaluation — no class, no Main, just code
+<img src="Docs~/images/repl-0.gif" width="100%" />
+
+#### Immediate evaluation — no class, no Main, just code
 
 ```csharp
 DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
@@ -30,7 +45,7 @@ DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
 
 <img src="Docs~/images/repl-1.png" />
 
-### 2. Cross-submission state — variables survive across submissions
+#### Cross-submission state — variables survive across submissions
 
 ```csharp
 var cam = Camera.main; cam.transform.position
@@ -38,7 +53,7 @@ var cam = Camera.main; cam.transform.position
 
 <img src="Docs~/images/repl-2.png" />
 
-### 3. Private member access — bypass access modifiers at compile time
+#### Private member access — bypass access modifiers at compile time
 
 ```csharp
 var go = GameObject.Find("Main Camera");
@@ -47,7 +62,7 @@ go.m_InstanceID
 
 <img src="Docs~/images/repl-3.png" />
 
-### 4. LINQ over live scene objects
+#### LINQ over live scene objects
 
 ```csharp
 string.Join(", ", UnityEngine.Object.FindObjectsOfType<Rigidbody>().Select(x => x.name))
@@ -55,7 +70,7 @@ string.Join(", ", UnityEngine.Object.FindObjectsOfType<Rigidbody>().Select(x => 
 
 <img src="Docs~/images/repl-4.png" />
 
-### 5. Command expressions — invoke server-side commands directly
+#### Command expressions — invoke server-side commands directly
 
 ```csharp
 @editor.status()
@@ -65,7 +80,7 @@ string.Join(", ", UnityEngine.Object.FindObjectsOfType<Rigidbody>().Select(x => 
 
 ## Installation
 
-Add the package to your project via `Packages/manifest.json`:
+Add via `Packages/manifest.json`:
 
 ```json
 {
@@ -75,7 +90,7 @@ Add the package to your project via `Packages/manifest.json`:
 }
 ```
 
-Or clone this repository and reference it as a local package:
+Or reference as a local package:
 
 ```json
 {
@@ -89,41 +104,44 @@ Or clone this repository and reference it as a local package:
 
 ## Quick Start
 
-### Editor
+### Editor — Zero Configuration
 
-The Editor-side service starts automatically via `[InitializeOnLoadMethod]`. No manual initialization needed.
+**Import the package and it just works.** The Editor-side HTTP service starts automatically via `[InitializeOnLoadMethod]` — no initialization code, no settings to tweak, no manual setup. Open the REPL from the Unity menu:
 
-Open the REPL from the Unity menu:
+| Menu Item | Target |
+|-----------|--------|
+| **Console > C#Console** | Local Editor |
+| **Console > RemoteC#Console** | Remote Editor / Player |
 
-- **Console -> C#Console** — connect to the local Editor
-- **Console -> RemoteC#Console** — connect to a remote Editor or Player
+### Runtime — One Line, No Extra Setup
 
-### Runtime
-
-Call the following once in your initialization path to enable the remote console on a Player build:
+Enable the remote console on a Player build with a single call:
 
 ```csharp
-#if DEVELOPMENT_BUILD || UNITY_EDITOR
+#if DEVELOPMENT_BUILD
 Zh1Zh1.CSharpConsole.RuntimeInitializer.ConsoleInitialize();
 #endif
 ```
 
-The runtime assembly is gated by `DEVELOPMENT_BUILD || UNITY_EDITOR`. Any code referencing `Zh1Zh1.CSharpConsole` must be wrapped in the same `#if` guard, otherwise non-development builds will fail to compile.
+Runtime execution only depends on **HybridCLR**'s `Assembly.Load` capability for IL2CPP (no additional configuration needed).
 
-The runtime service listens on port `15500` by default (the editor uses `14500`). If the port is occupied, it advances to the next available one.
+> The runtime assembly is gated by `DEVELOPMENT_BUILD || UNITY_EDITOR`.
 
-### HybridCLR
+| | Port |
+|--|------|
+| Editor | `14500` (default) |
+| Runtime | `15500` (default) |
 
-Runtime execution relies on HybridCLR for IL2CPP `Assembly.Load` support. If your project already has HybridCLR integrated, no additional configuration is needed.
+If a port is occupied, the service automatically advances to the next available one.
 
 ## REPL Usage
 
 ### Starting the REPL
 
-The recommended way is through the Unity menu entries above. You can also launch it directly:
+The recommended way is through the Unity menu. You can also launch directly:
 
 ```bash
-# Auto-discover running Unity Editors and choose one
+# Auto-discover running Unity Editors
 python "Editor/ExternalTool~/console-client/csharp_repl.py"
 
 # Connect to a specific Editor
@@ -137,31 +155,33 @@ python "Editor/ExternalTool~/console-client/csharp_repl.py" \
 
 Python dependencies (`requests`, `prompt_toolkit`, `Pygments`) are installed automatically on first launch.
 
-### Interaction
+### Key Bindings
 
-- **Enter** — submit the current input
-- **Ctrl+Enter** — insert a newline without submitting
-- **Tab** — accept the selected completion candidate
-- **Ctrl+R** — reverse history search
-- **Ctrl+C** — clear input (or confirm quit if input is empty)
+| Key | Action |
+|-----|--------|
+| `Enter` | Submit input |
+| `Ctrl+Enter` | Insert newline without submitting |
+| `Tab` | Accept completion candidate |
+| `Ctrl+R` | Reverse history search |
+| `Ctrl+C` | Clear input (confirm quit if empty) |
 
-Completion activates automatically as you type. The right side of the toolbar shows whether semantic completion is on (`●`) or off (`○`).
+Completion activates automatically as you type. The toolbar shows semantic completion status: on `●` / off `○`.
 
 ### Built-in Commands
 
 | Command | Description |
-| --- | --- |
-| `/completion <0\|1>` | Toggle semantic completion: `0` off, `1` on |
-| `/using` | Show the default `using` file path and editing instructions |
-| `/define` | Show the default preprocessor defines file path and editing instructions |
-| `/reload` | Reload default `using` / `define` files |
+|---------|-------------|
+| `/completion <0\|1>` | Toggle semantic completion |
+| `/using` | Show default `using` file path |
+| `/define` | Show preprocessor defines file path |
+| `/reload` | Reload `using` / `define` files |
 | `/reset` | Reset the REPL session |
 | `/clear` | Clear the terminal |
 | `/dofile <path>` | Execute a local `.cs` file |
 
 ### Command Expressions
 
-In addition to C# code and built-in commands, the REPL supports top-level command expressions that invoke the server-side command framework directly:
+The REPL supports `@`-prefixed command expressions that invoke the server-side command framework directly — bypassing Roslyn compilation:
 
 ```text
 @project.scene.open(scenePath: "Assets/Scenes/SampleScene.unity", mode: "single")
@@ -169,166 +189,80 @@ In addition to C# code and built-in commands, the REPL supports top-level comman
 @session.inspect(sessionId: "session-1")
 ```
 
-- Command expressions start with `@` at the top level and are routed to `/command` — they do not go through Roslyn compilation
-- Tab completion works for command names (from the server catalog) and argument names
+Tab completion works for both command names and argument names.
+
+## Built-in Actions
+
+46 built-in commands across 12 namespaces, covering editor control, scene manipulation, asset management, and more.
+
+| Namespace | Action | Description |
+|-----------|--------|-------------|
+| **gameobject** | `find` | Find GameObjects by name, tag, or component type |
+| | `create` | Create a new GameObject (empty or primitive) |
+| | `destroy` | Destroy a GameObject |
+| | `get` | Get detailed info about a GameObject |
+| | `modify` | Change name, tag, layer, active state, or static flag |
+| | `set_parent` | Reparent a GameObject |
+| | `duplicate` | Duplicate a GameObject |
+| **component** | `add` | Add a component to a GameObject |
+| | `remove` | Remove a component from a GameObject |
+| | `get` | Get serialized field data of a component |
+| | `modify` | Modify serialized fields of a component |
+| **transform** | `get` | Get position, rotation, and scale |
+| | `set` | Set position, rotation, and/or scale (local or world) |
+| **scene** | `hierarchy` | Get the full scene hierarchy tree, optionally with component info |
+| **prefab** | `create` | Create a prefab asset from a scene GameObject |
+| | `instantiate` | Instantiate a prefab into the active scene |
+| | `unpack` | Unpack a prefab instance |
+| **material** | `create` | Create a new material asset with a specified shader |
+| | `get` | Get material properties from an asset or a Renderer |
+| | `assign` | Assign a material to a Renderer component |
+| **screenshot** | `scene_view` | Capture the Scene View to an image file |
+| | `game_view` | Capture the Game View to an image file |
+| **profiler** | `start` | Start Profiler recording (optional deep profiling) |
+| | `stop` | Stop Profiler recording |
+| | `status` | Get current Profiler state |
+| | `save` | Save recorded profiler data to a `.raw` file |
+| **editor** | `status` | Get editor state and play mode info |
+| | `playmode.status` | Get current play mode state |
+| | `playmode.enter` | Enter play mode |
+| | `playmode.exit` | Exit play mode |
+| | `menu.open` | Execute a menu item by path |
+| | `window.open` | Open an editor window by type name |
+| | `console.get` | Get editor console log entries |
+| | `console.clear` | Clear the editor console |
+| **project** | `scene.list` | List all scenes in the project |
+| | `scene.open` | Open a scene by path |
+| | `scene.save` | Save the current scene |
+| | `selection.get` | Get the current editor selection |
+| | `selection.set` | Set the editor selection |
+| | `asset.list` | List assets by type filter |
+| | `asset.import` | Import an asset by path |
+| | `asset.reimport` | Reimport an asset by path |
+| **session** | `list` | List active REPL sessions |
+| | `inspect` | Inspect a session's state |
+| | `reset` | Reset a session's compiler and executor |
+| **command** | `list` | List all registered commands (built-in + custom) |
+
+> Most actions are editor-only. `session.*` and `command.list` are available on Runtime builds as well.
 
 ## Extending Commands
 
-The command framework lets any project add custom commands without modifying the package source. Commands use an ASP.NET minimal API-style design: declare a static method with `[CommandAction]`, and the framework automatically discovers it and binds parameters from JSON.
+The command framework lets any project add custom commands without modifying the package source — declare a `[CommandAction]` method and the framework handles discovery, parameter binding, and routing automatically.
 
-### Step 1 — Reference the Runtime assembly
-
-Create an asmdef (or use an existing one) that references `Zh1Zh1.CSharpConsole.Runtime`:
-
-```json
-{
-  "name": "MyGame.Commands",
-  "references": ["Zh1Zh1.CSharpConsole.Runtime"]
-}
-```
-
-### Step 2 — Write a command handler
-
-#### Minimal form — return `(bool, string)` tuple
-
-The simplest way to write a command. No need to reference any framework types beyond the attribute:
-
-```csharp
-using Zh1Zh1.CSharpConsole.Service.Commands.Routing;
-
-public static class MyCommands
-{
-    [CommandAction("mygame", "greet", summary: "Say hello")]
-    private static (bool, string) Greet(string name = "World")
-    {
-        return (true, $"Hello, {name}!");
-    }
-}
-```
-
-Return `(true, "message")` for success, `(false, "message")` for failure.
-
-#### Full form — return `CommandResponse` with structured data
-
-When you need to return structured JSON data for programmatic consumption:
-
-```csharp
-using System;
-using UnityEngine;
-using Zh1Zh1.CSharpConsole.Service.Commands.Core;
-using Zh1Zh1.CSharpConsole.Service.Commands.Routing;
-
-public static class MyCommands
-{
-    [Serializable]
-    private sealed class SpawnResult
-    {
-        public int count;
-        public string prefabPath = "";
-    }
-
-    [CommandAction("mygame", "spawn", editorOnly: true, runOnMainThread: true,
-        summary: "Spawn prefab instances")]
-    private static CommandResponse Spawn(string prefabPath, float x = 0, float y = 0, float z = 0, int count = 1)
-    {
-        if (string.IsNullOrEmpty(prefabPath))
-            return CommandResponseFactory.ValidationError("prefabPath is required");
-
-        var prefab = Resources.Load<GameObject>(prefabPath);
-        if (prefab == null)
-            return CommandResponseFactory.ValidationError($"Prefab not found: {prefabPath}");
-
-        for (var i = 0; i < count; i++)
-            UnityEngine.Object.Instantiate(prefab, new Vector3(x, y + i * 2, z), Quaternion.identity);
-
-        return CommandResponseFactory.Ok($"Spawned {count} instance(s)", new SpawnResult { count = count, prefabPath = prefabPath });
-    }
-}
-```
-
-### Step 3 — Invoke
-
-From the REPL:
-
-```text
-@mygame.greet(name: "Unity")
-@mygame.spawn(prefabPath: "Enemies/Slime", x: 10, count: 3)
-```
-
-### Parameter Binding
-
-Handler parameters are bound automatically from JSON args by name. No DTO classes needed.
-
-| Category | Supported types |
-|----------|----------------|
-| Primitives | `string`, `bool`, `int`, `long`, `short`, `byte`, `float`, `double`, `decimal`, `char` |
-| Nullable | `int?`, `float?`, `Vector3?`, etc. |
-| Enums | Any enum type (by name or numeric value) |
-| Arrays | `int[]`, `string[]`, `FieldPair[]`, etc. |
-| Structs/Classes | Any `[Serializable]` type (deserialized via `JsonUtility`) |
-
-- **Required** parameters (no default value) produce a validation error if missing
-- **Optional** parameters use C# default values: `string name = "default"`, `int count = 1`
-
-### `[CommandAction]` Attribute Reference
-
-```csharp
-[CommandAction(
-    "namespace",           // Command namespace (required)
-    "action",              // Action name (required)
-    editorOnly: false,     // true = unavailable on Player builds
-    runOnMainThread: false,// true = dispatch to Unity main thread
-    summary: "",           // Human-readable description
-    supportsCliInvocation: true,
-    supportsStructuredInvocation: true,
-    supportsAgentInvocation: false,
-    limitations: ""
-)]
-```
-
-### Return Types
-
-| Return type | When to use |
-|-------------|-------------|
-| `(bool, string)` | Simple commands — `(true, "msg")` for success, `(false, "msg")` for failure |
-| `CommandResponse` | When you need structured `resultJson` or fine-grained control |
-
-`CommandResponse` helpers:
-
-| Method | Description |
-|--------|-------------|
-| `CommandResponseFactory.Ok(summary)` | Success with no result data |
-| `CommandResponseFactory.Ok(summary, resultJson)` | Success with JSON string |
-| `CommandResponseFactory.Ok<T>(summary, result)` | Success with auto-serialized result |
-| `CommandResponseFactory.ValidationError(summary)` | Input validation failure |
-
-### Configuring Command Discovery
-
-By default the framework scans all loaded assemblies for `[CommandAction]` attributes. For large projects you can restrict scanning to specific assemblies:
-
-```csharp
-using Zh1Zh1.CSharpConsole.Service.Commands.Core;
-
-// Call before ConsoleInitialize()
-CommandDiscoveryOptions.Configure(
-    new CommandDiscoveryOptions
-    {
-        assemblyNamePrefixes = new[] { "MyGame", "MyCompany" },
-        scanReferencingAssembliesOnly = true,
-        includeEditorAssemblies = false
-    },
-    assemblyFilter: null);
-
-Zh1Zh1.CSharpConsole.RuntimeInitializer.ConsoleInitialize();
-```
-
-For finer-grained control, implement `ICommandAssemblyFilter` and pass it as the second argument to `Configure(...)`.
+See the full guide: **[Extending Commands](Docs~/ExtendingCommands.md)**
 
 ## Requirements
 
-- **Unity** 2022.3 or later
-- **Python** 3 (accessible on system `PATH`)
-- **Windows Terminal** (optional — falls back to launching Python directly if unavailable)
+| Dependency | Version |
+|------------|---------|
+| Unity | 2022.3+ (theoretically 2019+ compatible, but untested) |
+| Python | 3.x (on system `PATH`) |
+| Windows Terminal | Optional (falls back to Python directly) |
+
+## Related Projects
+
+- **[unity-cli-plugin](https://github.com/niqibiao/unity-cli-plugin)** — Non-interactive CLI for the same HTTP service, designed for scripting and automation workflows.
 
 ## Third-Party Notices
 

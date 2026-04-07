@@ -6,6 +6,7 @@ using UnityEngine.Profiling;
 #endif
 using Zh1Zh1.CSharpConsole.Service.Commands.Core;
 using Zh1Zh1.CSharpConsole.Service.Commands.Routing;
+using Zh1Zh1.CSharpConsole.Service.Internal;
 
 namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 {
@@ -36,7 +37,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction("profiler", "start", editorOnly: true, summary: "Start Profiler recording")]
         private static CommandResponse Start(bool deep = false, string logFile = "")
         {
-            var result = ConsoleHttpService.RunOnEditorThread(() =>
+            var result = MainThreadRequestRunner.RunOnMainThread(() =>
             {
                 if (s_DeepProfilingProp != null)
                 {
@@ -74,7 +75,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction("profiler", "stop", editorOnly: true, summary: "Stop Profiler recording")]
         private static CommandResponse Stop()
         {
-            var result = ConsoleHttpService.RunOnEditorThread(() =>
+            var result = MainThreadRequestRunner.RunOnMainThread(() =>
             {
                 Profiler.enabled = false;
                 Profiler.enableBinaryLog = false;
@@ -100,7 +101,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction("profiler", "status", editorOnly: true, summary: "Get current Profiler state")]
         private static CommandResponse Status()
         {
-            var result = ConsoleHttpService.RunOnEditorThread(() =>
+            var result = MainThreadRequestRunner.RunOnMainThread(() =>
             {
                 var isDeep = s_DeepProfilingProp != null && (bool)s_DeepProfilingProp.GetValue(null);
                 var first = s_FirstFrameIndexProp != null ? (int)s_FirstFrameIndexProp.GetValue(null) : 0;
@@ -138,7 +139,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 return CommandResponseFactory.ValidationError("ProfilerDriver.SaveProfile is not available");
             }
 
-            var result = ConsoleHttpService.RunOnEditorThread(() =>
+            var result = MainThreadRequestRunner.RunOnMainThread(() =>
             {
                 CommandHelpers.EnsureDirectoryExists(savePath);
                 s_SaveProfileMethod.Invoke(null, new object[] { savePath });

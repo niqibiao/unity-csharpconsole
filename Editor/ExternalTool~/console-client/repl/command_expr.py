@@ -3,7 +3,7 @@ import re
 
 
 _IDENTIFIER_PATTERN = r"[A-Za-z_][A-Za-z0-9_]*"
-_SEGMENT_PATTERN = r"[A-Za-z_][A-Za-z0-9_\-]*"
+_SEGMENT_PATTERN = r"[A-Za-z_][A-Za-z0-9_]*"
 _COMMAND_PATH_PATTERN = re.compile(
     rf"{_SEGMENT_PATTERN}\.{_SEGMENT_PATTERN}(?:\.{_SEGMENT_PATTERN})*"
 )
@@ -110,16 +110,18 @@ def parse_command_expression(message):
         raise ValueError("command path must be <namespace>.<action>")
 
     args = {}
+    positional_index = 0
     if args_text:
         for part in split_command_arguments(args_text):
             if not part:
                 continue
-            name, separator, value = part.partition(":")
-            if separator != ":":
-                raise ValueError(f"invalid named argument '{part}'")
-            arg_name = name.strip()
-            if not re.fullmatch(_IDENTIFIER_PATTERN, arg_name):
-                raise ValueError(f"invalid argument name '{arg_name}'")
-            args[arg_name] = parse_command_value(value)
+            named_match = re.match(rf"({_IDENTIFIER_PATTERN})\s*:", part)
+            if named_match:
+                arg_name = named_match.group(1)
+                value_text = part[named_match.end():]
+                args[arg_name] = parse_command_value(value_text)
+            else:
+                args[f"__pos{positional_index}"] = parse_command_value(part)
+                positional_index += 1
 
     return command_namespace, action, args

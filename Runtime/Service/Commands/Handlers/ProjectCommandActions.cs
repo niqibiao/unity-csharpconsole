@@ -9,6 +9,7 @@ using UnityEngine.SceneManagement;
 #endif
 using Zh1Zh1.CSharpConsole.Service.Commands.Core;
 using Zh1Zh1.CSharpConsole.Service.Commands.Routing;
+using Zh1Zh1.CSharpConsole.Service.Internal;
 
 namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 {
@@ -80,7 +81,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction("project", "scene.list", editorOnly: true, summary: "List all scenes in the project")]
         private static CommandResponse SceneList()
         {
-            var result = ConsoleHttpService.RunOnEditorThread(() =>
+            var result = MainThreadRequestRunner.RunOnMainThread(() =>
             {
                 var guids = AssetDatabase.FindAssets("t:Scene");
                 var paths = new List<string>(guids.Length);
@@ -120,7 +121,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 return CommandResponseFactory.ValidationError($"Unsupported scene open mode '{mode}'. Supported values: single, additive");
             }
 
-            var result = ConsoleHttpService.RunOnEditorThread(() =>
+            var result = MainThreadRequestRunner.RunOnMainThread(() =>
             {
                 if (AssetDatabase.LoadAssetAtPath<SceneAsset>(scenePath) == null)
                 {
@@ -165,7 +166,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction("project", "scene.save", editorOnly: true, summary: "Save the current scene")]
         private static CommandResponse SceneSave(string scenePath = "", bool saveAsCopy = false)
         {
-            var preflight = ConsoleHttpService.RunOnEditorThread(() =>
+            var preflight = MainThreadRequestRunner.RunOnMainThread(() =>
             {
                 if (!string.IsNullOrEmpty(scenePath))
                 {
@@ -187,7 +188,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 return CommandResponseFactory.ValidationError("scenePath is required for project/scene.save when active scene has no saved path");
             }
 
-            var result = ConsoleHttpService.RunOnEditorThread(() =>
+            var result = MainThreadRequestRunner.RunOnMainThread(() =>
             {
                 var active = EditorSceneManager.GetActiveScene();
                 var saved = string.IsNullOrEmpty(scenePath)
@@ -210,7 +211,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction("project", "selection.get", editorOnly: true, summary: "Get the current editor selection")]
         private static CommandResponse SelectionGet()
         {
-            var result = ConsoleHttpService.RunOnEditorThread(() =>
+            var result = MainThreadRequestRunner.RunOnMainThread(() =>
             {
                 var objects = Selection.objects ?? Array.Empty<UnityEngine.Object>();
                 var instanceIds = new int[objects.Length];
@@ -235,7 +236,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction("project", "selection.set", editorOnly: true, summary: "Set the editor selection by name or path")]
         private static CommandResponse SelectionSet(int[] instanceIds = null, string[] assetPaths = null)
         {
-            var result = ConsoleHttpService.RunOnEditorThread(() =>
+            var result = MainThreadRequestRunner.RunOnMainThread(() =>
             {
                 var selected = new List<UnityEngine.Object>();
 
@@ -291,7 +292,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction("project", "asset.list", editorOnly: true, summary: "List assets by type filter")]
         private static CommandResponse AssetList(string filter = "", string[] folders = null)
         {
-            var result = ConsoleHttpService.RunOnEditorThread(() =>
+            var result = MainThreadRequestRunner.RunOnMainThread(() =>
             {
                 var normalizedFilter = filter ?? "";
                 string[] searchFolders = null;
@@ -338,9 +339,9 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 return CommandResponseFactory.ValidationError($"assetPath is required for project/{actionName}");
             }
 
-            var validationState = ConsoleHttpService.RunOnEditorThread(() =>
+            var validationState = MainThreadRequestRunner.RunOnMainThread(() =>
             {
-                var targetPath = assetPath ?? "";
+                var targetPath = assetPath;
                 var hasDirtyLoadedScenes = false;
                 var targetsLoadedSceneAsset = false;
 
@@ -373,12 +374,12 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 return CommandResponseFactory.ValidationError($"Cannot run project/{actionName} on currently loaded scene asset: {assetPath}");
             }
 
-            if (validationState.hasDirtyLoadedScenes)
+            if (validationState.hasDirtyLoadedScenes && MayTriggerDomainReload(assetPath))
             {
-                return CommandResponseFactory.ValidationError($"Cannot run project/{actionName} while loaded scenes have unsaved changes");
+                return CommandResponseFactory.ValidationError($"Cannot run project/{actionName} while loaded scenes have unsaved changes (importing scripts triggers domain reload)");
             }
 
-            var result = ConsoleHttpService.RunOnEditorThread(() =>
+            var result = MainThreadRequestRunner.RunOnMainThread(() =>
             {
                 var options = ImportAssetOptions.Default;
                 if (forceSynchronousImport)
@@ -404,6 +405,19 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             return result.exists
                 ? CommandResponseFactory.Ok($"Imported asset '{result.assetPath}'", JsonUtility.ToJson(result))
                 : CommandResponseFactory.ValidationError($"Asset was not found after import: {result.assetPath}");
+        }
+
+        private static bool MayTriggerDomainReload(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return false;
+            }
+
+            return path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)
+                || path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+                || path.EndsWith(".asmdef", StringComparison.OrdinalIgnoreCase)
+                || path.EndsWith(".asmref", StringComparison.OrdinalIgnoreCase);
         }
 #endif
     }

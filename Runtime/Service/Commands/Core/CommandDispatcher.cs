@@ -58,8 +58,6 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
                 ? invocation?.sessionId ?? ""
                 : response.sessionId;
             response.resultJson ??= "";
-            response.nextAction ??= "";
-            response.metadataJson = string.IsNullOrWhiteSpace(response.metadataJson) ? "{}" : response.metadataJson;
             return response;
         }
     }

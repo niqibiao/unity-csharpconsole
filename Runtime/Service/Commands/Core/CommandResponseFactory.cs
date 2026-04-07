@@ -21,8 +21,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
                 ok = true,
                 type = "ok",
                 summary = summary,
-                resultJson = resultJson ?? "",
-                metadataJson = "{}"
+                resultJson = resultJson ?? ""
             };
         }
 
@@ -32,8 +31,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
             {
                 ok = false,
                 type = "validation_error",
-                summary = summary,
-                metadataJson = "{}"
+                summary = summary
             };
         }
 
@@ -50,8 +48,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
             {
                 ok = false,
                 type = "validation_error",
-                summary = "Unknown command: request body is empty or invalid",
-                metadataJson = "{}"
+                summary = "Unknown command: request body is empty or invalid"
             };
         }
 
@@ -61,8 +58,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
             {
                 ok = false,
                 type = "system_error",
-                summary = summary,
-                metadataJson = "{}"
+                summary = summary
             };
         }
 

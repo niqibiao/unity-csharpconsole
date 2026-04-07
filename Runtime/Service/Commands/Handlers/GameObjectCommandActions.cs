@@ -100,12 +100,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             }
 
             var go = current.gameObject;
-            var match = true;
-
-            if (!string.IsNullOrEmpty(nameFilter) && go.name.IndexOf(nameFilter, StringComparison.OrdinalIgnoreCase) < 0)
-            {
-                match = false;
-            }
+            var match = !(!string.IsNullOrEmpty(nameFilter) && go.name.IndexOf(nameFilter, StringComparison.OrdinalIgnoreCase) < 0);
 
             if (match && !string.IsNullOrEmpty(tagFilter))
             {
@@ -169,7 +164,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 
                     if (!string.IsNullOrEmpty(parentPath))
                     {
-                        var parent = GameObject.Find(parentPath);
+                        var parent = CommandHelpers.FindByPath(parentPath);
                         if (parent == null)
                         {
                             UnityEngine.Object.DestroyImmediate(go);
@@ -344,7 +339,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public string newPath = "";
         }
 
-        [CommandAction("gameobject", "set-parent", editorOnly: true, summary: "Change a GameObject's parent")]
+        [CommandAction("gameobject", "set_parent", editorOnly: true, summary: "Change a GameObject's parent")]
         private static CommandResponse SetParent(
             string path = "",
             int instanceId = 0,

@@ -22,8 +22,6 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
         {
             public CommandEnvelopeCommandData command = new CommandEnvelopeCommandData();
             public string resultJson = "";
-            public string nextAction = "";
-            public string metadataJson = "{}";
         }
 
         private readonly ConsoleHttpServiceDependencies _dependencies;
@@ -72,9 +70,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
                     action = response.action ?? "",
                     sessionId = response.sessionId ?? ""
                 },
-                resultJson = response.resultJson ?? "",
-                nextAction = response.nextAction ?? "",
-                metadataJson = string.IsNullOrWhiteSpace(response.metadataJson) ? "{}" : response.metadataJson
+                resultJson = response.resultJson ?? ""
             });
             return _dependencies.EnvelopeFactory.CreateEnvelope(
                 response.ok,

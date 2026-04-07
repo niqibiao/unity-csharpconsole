@@ -9,10 +9,12 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
 {
     internal sealed class CommandRouter
     {
-        private static readonly object s_Lock = new();
+        private readonly static object s_Lock = new();
         private static CommandRouter s_Instance;
         private static int s_ConfigVersion = -1;
         private static int s_DiscoveryFailedVersion = -1;
+        private const double DISCOVERY_RETRY_COOLDOWN_SECONDS = 10.0;
+        private static double s_DiscoveryFailedTimestamp = -1.0;
 
         private readonly CommandRegistry m_Registry = new();
         private readonly CommandDispatcher m_Dispatcher;
@@ -40,6 +42,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
                 s_Instance = null;
                 s_ConfigVersion = -1;
                 s_DiscoveryFailedVersion = -1;
+                s_DiscoveryFailedTimestamp = -1.0;
             }
         }
 
@@ -60,7 +63,19 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
                 var configVersion = CommandDiscoveryOptions.GetVersion();
                 if (s_Instance != null && s_ConfigVersion == configVersion)
                 {
-                    return s_Instance;
+                    // If discovery previously failed and cooldown has elapsed, discard the
+                    // cached instance and fall through to rebuild from scratch.  We cannot
+                    // retry on the existing instance because CommandRegistry throws on
+                    // duplicate registrations for commands that were already registered
+                    // before the original failure.
+                    if (s_DiscoveryFailedVersion == configVersion && ShouldRetryDiscovery())
+                    {
+                        s_Instance = null;
+                    }
+                    else
+                    {
+                        return s_Instance;
+                    }
                 }
 
                 var router = new CommandRouter(BuildMainThreadRunner());
@@ -77,15 +92,18 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
                 ScreenshotCommandActions.Register(router);
                 ProfilerCommandActions.Register(router);
 
-                if (s_DiscoveryFailedVersion != configVersion)
+                if (s_DiscoveryFailedVersion != configVersion || ShouldRetryDiscovery())
                 {
                     try
                     {
                         router.RegisterAttributedHandlersFromLoadedAssemblies();
+                        s_DiscoveryFailedVersion = -1;
+                        s_DiscoveryFailedTimestamp = -1.0;
                     }
                     catch (Exception e)
                     {
                         s_DiscoveryFailedVersion = configVersion;
+                        s_DiscoveryFailedTimestamp = ServiceTimestamp.Now();
                         Debug.LogError($"[CSharpConsole] Failed to auto-discover command actions: {e}");
                     }
                 }
@@ -150,8 +168,8 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
                     continue;
                 }
 
-                var binding = CommandHandlerBindingFactory.Create(ownerType, method, attribute);
-                m_Registry.Register(BuildDescriptor(ownerType, method, attribute, binding), binding.invoker);
+                var (invoker, arguments) = CommandHandlerBindingFactory.Create(ownerType, method, attribute);
+                m_Registry.Register(BuildDescriptor(ownerType, method, attribute, arguments), invoker);
             }
         }
 
@@ -161,7 +179,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
             return m_Dispatcher.Dispatch(m_Registry, invocation);
         }
 
-        private static CommandDescriptor BuildDescriptor(Type ownerType, MethodInfo method, CommandActionAttribute attribute, CommandHandlerBinding binding)
+        private static CommandDescriptor BuildDescriptor(Type ownerType, MethodInfo method, CommandActionAttribute attribute, CommandArgumentDescriptor[] arguments)
         {
             return new CommandDescriptor
             {
@@ -171,13 +189,9 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
                 summary = attribute.summary ?? "",
                 editorOnly = attribute.editorOnly,
                 runOnMainThread = attribute.runOnMainThread,
-                supportsCliInvocation = attribute.supportsCliInvocation,
-                supportsStructuredInvocation = attribute.supportsStructuredInvocation,
-                supportsAgentInvocation = attribute.supportsAgentInvocation,
-                limitations = attribute.limitations ?? "",
                 declaringType = ownerType?.FullName ?? "",
                 methodName = method?.Name ?? "",
-                arguments = binding?.arguments ?? Array.Empty<CommandArgumentDescriptor>()
+                arguments = arguments ?? Array.Empty<CommandArgumentDescriptor>()
             };
         }
 
@@ -309,5 +323,16 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
         {
             return work => MainThreadRequestRunner.RunOnMainThread(work);
         }
+
+        private static bool ShouldRetryDiscovery()
+        {
+            if (s_DiscoveryFailedTimestamp < 0.0)
+            {
+                return true;
+            }
+
+            return (ServiceTimestamp.Now() - s_DiscoveryFailedTimestamp) >= DISCOVERY_RETRY_COOLDOWN_SECONDS;
+        }
+
     }
 }

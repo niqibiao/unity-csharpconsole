@@ -98,7 +98,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     }
                     else if (!string.IsNullOrEmpty(gameObjectPath))
                     {
-                        var go = GameObject.Find(gameObjectPath);
+                        var go = CommandHelpers.FindByPath(gameObjectPath);
                         if (go == null)
                             return (error: $"No GameObject found at path '{gameObjectPath}'", result: (GetResult)null);
 

@@ -6,6 +6,7 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 #endif
 using Zh1Zh1.CSharpConsole.Service.Commands.Core;
+using Zh1Zh1.CSharpConsole.Service.Internal;
 
 namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 {
@@ -17,7 +18,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             Func<TResult, string> summarize)
             where TResult : class
         {
-            var result = ConsoleHttpService.RunOnEditorThread(execute);
+            var result = MainThreadRequestRunner.RunOnMainThread(execute);
 
             if (result.error != null)
                 return CommandResponseFactory.ValidationError(result.error);
@@ -55,7 +56,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             return null;
         }
 
-        private static GameObject FindByPath(string path)
+        internal static GameObject FindByPath(string path)
         {
             var segments = path.TrimStart('/').Split('/');
             if (segments.Length == 0) return null;

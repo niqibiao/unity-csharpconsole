@@ -56,7 +56,16 @@ namespace Zh1Zh1.CSharpConsole.Service
         public bool refreshing;
         public int generation;
         public string editorState = "";
+        public string packageVersion = "";
+        public int protocolVersion;
+        public string unityVersion = "";
         public RefreshOperationState operation = new();
+    }
+
+    [Serializable]
+    internal class RefreshRequest
+    {
+        public bool exitPlayModeIfNeeded;
     }
 
     [Serializable]
@@ -66,6 +75,7 @@ namespace Zh1Zh1.CSharpConsole.Service
         public bool accepted;
         public bool sessionsCleared;
         public bool refreshing;
+        public bool exitPlayModeRequested;
         public int generation;
         public string message = "";
         public RefreshOperationState operation = new();
