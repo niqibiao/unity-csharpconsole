@@ -263,6 +263,8 @@ See the full guide: **[Extending Commands](Docs~/ExtendingCommands.md)**
 ## Related Projects
 
 - **[unity-cli-plugin](https://github.com/niqibiao/unity-cli-plugin)** — Non-interactive CLI for the same HTTP service, designed for scripting and automation workflows.
+- **[python-prompt-toolkit](https://github.com/prompt-toolkit/python-prompt-toolkit)** — Terminal UI library powering the REPL's interactive interface.
+- **[HybridCLR](https://github.com/focus-creative-games/hybridclr)** — IL2CPP hot-reload solution enabling `Assembly.Load` in Runtime mode.
 
 ## Third-Party Notices
 

@@ -263,7 +263,8 @@ Tab 补全支持命令名和参数名。
 ## 相关项目
 
 - **[unity-cli-plugin](https://github.com/niqibiao/unity-cli-plugin)** — 非交互式 CLI，连接同一 HTTP 服务，面向脚本和自动化场景。
-
+- **[python-prompt-toolkit](https://github.com/prompt-toolkit/python-prompt-toolkit)** — REPL 交互界面所依赖的 Python 终端 UI 库。
+- **[HybridCLR](https://github.com/focus-creative-games/hybridclr)** — IL2CPP 热更新方案，Runtime 模式下的程序集加载依赖此项目。
 ## 第三方声明
 
 本包在 `Editor/Plugins/` 下捆绑了 Roslyn 编译器程序集和 dnlib。完整归属和许可信息见 [ThirdPartyNotices.md](ThirdPartyNotices.md)。
