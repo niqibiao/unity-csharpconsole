@@ -20,7 +20,7 @@ English | [中文](README_zh.md)
 
 ---
 
-## Features
+## ✦ Features
 
 ### Core Capabilities
 
@@ -78,7 +78,7 @@ string.Join(", ", UnityEngine.Object.FindObjectsOfType<Rigidbody>().Select(x => 
 
 <img src="Docs~/images/repl-5.png" />
 
-## Installation
+## ⚙ Installation
 
 Add via `Packages/manifest.json`:
 
@@ -102,7 +102,7 @@ Or reference as a local package:
 
 > **Note:** Both assembly definitions have `autoReferenced: false`. If your code needs to reference this package, add `Zh1Zh1.CSharpConsole.Runtime` (or `.Editor`) to your asmdef's references explicitly.
 
-## Quick Start
+## ▶ Quick Start
 
 ### Editor — Zero Configuration
 
@@ -134,7 +134,7 @@ Runtime execution only depends on **HybridCLR**'s `Assembly.Load` capability for
 
 If a port is occupied, the service automatically advances to the next available one.
 
-## REPL Usage
+## ⌨ REPL Usage
 
 ### Starting the REPL
 
@@ -202,7 +202,7 @@ The REPL supports `@`-prefixed command expressions that invoke the server-side c
 
 Tab completion works for both command names and argument names.
 
-## Built-in Actions
+## 📋 Built-in Actions
 
 46 built-in commands across 12 namespaces, covering editor control, scene manipulation, asset management, and more.
 
@@ -257,13 +257,13 @@ Tab completion works for both command names and argument names.
 
 > Most actions are editor-only. `session.*` and `command.list` are available on Runtime builds as well.
 
-## Extending Commands
+## 🔌 Extending Commands
 
 The command framework lets any project add custom commands without modifying the package source — declare a `[CommandAction]` method and the framework handles discovery, parameter binding, and routing automatically.
 
 See the full guide: **[Extending Commands](Docs~/ExtendingCommands.md)**
 
-## Requirements
+## 📦 Requirements
 
 | Dependency | Version |
 |------------|---------|
@@ -271,16 +271,16 @@ See the full guide: **[Extending Commands](Docs~/ExtendingCommands.md)**
 | Python | 3.x (on system `PATH`) |
 | Windows Terminal | Optional (falls back to Python directly) |
 
-## Related Projects
+## 🔗 Related Projects
 
 - **[unity-cli-plugin](https://github.com/niqibiao/unity-cli-plugin)** — Non-interactive CLI for the same HTTP service, designed for scripting and automation workflows.
 - **[python-prompt-toolkit](https://github.com/prompt-toolkit/python-prompt-toolkit)** — Terminal UI library powering the REPL's interactive interface.
 - **[HybridCLR](https://github.com/focus-creative-games/hybridclr)** — IL2CPP hot-reload solution enabling `Assembly.Load` in Runtime mode.
 
-## Third-Party Notices
+## 📄 Third-Party Notices
 
 This package bundles Roslyn compiler assemblies and dnlib under `Editor/Plugins/`. See [ThirdPartyNotices.md](ThirdPartyNotices.md) for full attribution and license details.
 
-## License
+## 📜 License
 
 [Apache License 2.0](LICENSE)
