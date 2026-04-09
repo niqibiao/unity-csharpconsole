@@ -14,17 +14,11 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
         {
         }
 
-        [UnityEditor.InitializeOnLoadMethod]
-        private static void WarmupDefaultDefines()
-        {
-            s_DefaultDefines = ResolveDefaultDefines();
-        }
-
         private static string GetCachedDefaultDefines()
         {
             if (s_DefaultDefines == null)
             {
-                throw new InvalidOperationException("EditorREPLCompiler default defines were not warmed up on the main thread.");
+                s_DefaultDefines = ResolveDefaultDefines();
             }
 
             return s_DefaultDefines;
