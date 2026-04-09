@@ -155,6 +155,17 @@ python "Editor/ExternalTool~/console-client/csharp_repl.py" \
 
 Python 依赖（`requests`、`prompt_toolkit`、`Pygments`）在首次启动时自动安装。
 
+### 远程 Runtime — 可选设置
+
+通过 **Console > RemoteC#Console** 连接 Runtime Player 时，有两个可选设置可以提高编译准确性：
+
+| 设置 | 说明 |
+|------|------|
+| **Runtime Dll Path** | Player 编译后的程序集目录。编译器使用这些 DLL 替代 Editor 程序集来解析类型，确保编译结果与 Player 实际运行环境一致。推荐路径：`Library/Bee/PlayerScriptAssemblies`（执行 Player 构建后生成）。 |
+| **Runtime Defines File** | `.txt` 文件，列出与 Player 构建配置一致的预处理器宏定义，确保 `#if` 指令编译时与 Player 端求值结果相同。支持每行一个宏定义或分号分隔（如 `UNITY_ANDROID;IL2CPP;DEVELOPMENT_BUILD`）。 |
+
+两项设置持久化在 `EditorPrefs` 中，仅在 **Remote Is Editor** 未勾选时生效。留空则使用默认值（Editor 程序集和宏定义）。
+
 ### 快捷键
 
 | 按键 | 操作 |

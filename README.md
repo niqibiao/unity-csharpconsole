@@ -155,6 +155,17 @@ python "Editor/ExternalTool~/console-client/csharp_repl.py" \
 
 Python dependencies (`requests`, `prompt_toolkit`, `Pygments`) are installed automatically on first launch.
 
+### Remote Runtime — Optional Settings
+
+When connecting to a Runtime Player via **Console > RemoteC#Console**, two optional settings are available to improve compilation accuracy:
+
+| Setting | Description |
+|---------|-------------|
+| **Runtime Dll Path** | Directory containing the player's compiled assemblies. The compiler uses these DLLs instead of Editor assemblies to resolve types, ensuring the compiled code matches what the player actually has. Recommended path: `Library/Bee/PlayerScriptAssemblies` (populated after a player build). |
+| **Runtime Defines File** | A `.txt` file listing preprocessor defines that match the player's build configuration, ensuring `#if` directives evaluate the same way as in the player. Supports one define per line or semicolon-separated (e.g. `UNITY_ANDROID;IL2CPP;DEVELOPMENT_BUILD`). |
+
+Both settings are persisted in `EditorPrefs` and only apply when **Remote Is Editor** is unchecked. Leave them empty to use defaults (Editor assemblies and defines).
+
 ### Key Bindings
 
 | Key | Action |

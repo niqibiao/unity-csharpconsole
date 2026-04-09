@@ -96,22 +96,28 @@ namespace Zh1Zh1.CSharpConsole.Service
 
             var sw = Stopwatch.StartNew();
 
-            s_Initialized = true;
             BootstrapDependencies();
             StartListener();
-            if (s_Listener?.IsListening == true)
+            if (s_Listener?.IsListening != true)
             {
-#if UNITY_EDITOR
-                var state = GetRefreshStateSnapshot();
-                if (state.PhaseValue == RefreshPhase.Reloading || state.PhaseValue == RefreshPhase.Compiling || state.PhaseValue == RefreshPhase.RefreshingAssets || state.PhaseValue == RefreshPhase.Requested)
-                {
-                    state.reloadObserved = true;
-                    SetPhase(state, RefreshPhase.Ready);
-                    state.message = "Service recovered after refresh";
-                    SaveRefreshState(state);
-                }
-#endif
+                // Listener failed — reset state so a future call can retry.
+                s_Listener = null;
+                Port = 0;
+                ConsoleLog.Error("Service initialization failed: listener could not start");
+                return;
             }
+
+            s_Initialized = true;
+#if UNITY_EDITOR
+            var state = GetRefreshStateSnapshot();
+            if (state.PhaseValue == RefreshPhase.Reloading || state.PhaseValue == RefreshPhase.Compiling || state.PhaseValue == RefreshPhase.RefreshingAssets || state.PhaseValue == RefreshPhase.Requested)
+            {
+                state.reloadObserved = true;
+                SetPhase(state, RefreshPhase.Ready);
+                state.message = "Service recovered after refresh";
+                SaveRefreshState(state);
+            }
+#endif
 
             sw.Stop();
             ConsoleLog.Info($"Initialized service on port {Port}, elapsed={sw.ElapsedMilliseconds}ms");
@@ -130,6 +136,7 @@ namespace Zh1Zh1.CSharpConsole.Service
 
             s_Listener?.Stop();
             s_Listener = null;
+            Port = 0;
 
             ConsoleLog.Info("Service shutdown");
         }
@@ -848,6 +855,9 @@ namespace Zh1Zh1.CSharpConsole.Service
 
         private static void OnBeforeAssemblyReload()
         {
+            // Stop listener before domain unload to prevent port leak and drift.
+            Shutdown();
+
             UpdateRefreshState(state =>
             {
                 if (IsActiveRefreshPhase(state.PhaseValue) || state.PhaseValue == RefreshPhase.Ready)
@@ -1149,11 +1159,22 @@ namespace Zh1Zh1.CSharpConsole.Service
                 else
                 {
                     Directory.CreateDirectory(cacheRoot);
-                    Directory.CreateDirectory(extractDir);
-                    using (var zipStream = new MemoryStream(zipBytes))
-                    using (var archive = new ZipArchive(zipStream, ZipArchiveMode.Read))
+                    var tmpDir = extractDir + $".tmp.{System.Diagnostics.Process.GetCurrentProcess().Id}";
+                    try
                     {
-                        archive.ExtractToDirectory(extractDir);
+                        Directory.CreateDirectory(tmpDir);
+                        using (var zipStream = new MemoryStream(zipBytes))
+                        using (var archive = new ZipArchive(zipStream, ZipArchiveMode.Read))
+                        {
+                            archive.ExtractToDirectory(tmpDir);
+                        }
+
+                        Directory.Move(tmpDir, extractDir);
+                    }
+                    catch
+                    {
+                        try { Directory.Delete(tmpDir, true); } catch { /* best effort */ }
+                        throw;
                     }
 
                     ConsoleLog.Debug($"UploadDlls extracted to {extractDir}");
