@@ -1,6 +1,8 @@
 import sys
 
-from csharp_bootstrap import bootstrap_repl_dependencies
+from csharp_bootstrap import bootstrap_repl_dependencies, ensure_supported_python
+ensure_supported_python()
+
 from repl import direct_launch as direct_launch_helpers
 from repl.launcher import (
     build_direct_launch_editor_args,

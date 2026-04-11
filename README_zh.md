@@ -153,7 +153,7 @@ python "Editor/ExternalTool~/console-client/csharp_repl.py" \
   --compile-ip 127.0.0.1 --compile-port 14500
 ```
 
-Python 依赖（`requests`、`prompt_toolkit`、`Pygments`）在首次启动时自动安装。
+需要 Python 3.7+。Python 依赖（`requests`、`prompt_toolkit`、`Pygments`）在首次启动时自动安装。
 
 ### 远程 Runtime — 可选设置
 

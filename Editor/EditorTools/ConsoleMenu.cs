@@ -9,6 +9,8 @@ namespace Zh1Zh1.CSharpConsole.Editor.EditorTools
     public static class ConsoleMenu
     {
         private const string LocalHost = "127.0.0.1";
+        private const int MinPythonMajor = 3;
+        private const int MinPythonMinor = 7;
 
         private readonly static string s_ToolDir = Path.GetFullPath("Packages/com.zh1zh1.csharpconsole/Editor/ExternalTool~/console-client");
 
@@ -39,10 +41,10 @@ namespace Zh1Zh1.CSharpConsole.Editor.EditorTools
             bool remoteIsEditor, string ip, int port, string runtimeDllPath,
             string compileServerIP, int compileServerPort, string runtimeDefinesPath)
         {
-            var python = EnsurePy3();
+            var python = EnsureSupportedPython();
             if (string.IsNullOrEmpty(python))
             {
-                ConsoleLog.Error("Python 3 not found. Please install Python 3 and add it to your system PATH.");
+                ConsoleLog.Error($"Python {MinPythonMajor}.{MinPythonMinor}+ not found. Please install a supported Python version and add it to your system PATH.");
                 return;
             }
 
@@ -91,7 +93,7 @@ namespace Zh1Zh1.CSharpConsole.Editor.EditorTools
 
         private static string Q(string s) => $"\"{s}\"";
 
-        private static string EnsurePy3()
+        private static string EnsureSupportedPython()
         {
             foreach (var name in new[] { "python3", "python" })
             {
@@ -113,7 +115,13 @@ namespace Zh1Zh1.CSharpConsole.Editor.EditorTools
                     }
 
                     var output = p.StandardOutput.ReadToEnd().Trim();
-                    if (output.StartsWith("Python 3", StringComparison.OrdinalIgnoreCase))
+                    if (string.IsNullOrEmpty(output))
+                    {
+                        output = p.StandardError.ReadToEnd().Trim();
+                    }
+
+                    if (TryParsePythonVersion(output, out var major, out var minor)
+                        && IsSupportedPythonVersion(major, minor))
                     {
                         return name;
                     }
@@ -125,6 +133,37 @@ namespace Zh1Zh1.CSharpConsole.Editor.EditorTools
             }
 
             return null;
+        }
+
+        private static bool IsSupportedPythonVersion(int major, int minor)
+        {
+            return major > MinPythonMajor || (major == MinPythonMajor && minor >= MinPythonMinor);
+        }
+
+        private static bool TryParsePythonVersion(string output, out int major, out int minor)
+        {
+            major = 0;
+            minor = 0;
+
+            if (string.IsNullOrWhiteSpace(output))
+            {
+                return false;
+            }
+
+            const string prefix = "Python ";
+            if (!output.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var versionText = output.Substring(prefix.Length).Trim();
+            var parts = versionText.Split('.');
+            if (parts.Length < 2)
+            {
+                return false;
+            }
+
+            return int.TryParse(parts[0], out major) && int.TryParse(parts[1], out minor);
         }
 #endregion
     }

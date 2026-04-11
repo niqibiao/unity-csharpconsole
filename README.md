@@ -153,7 +153,7 @@ python "Editor/ExternalTool~/console-client/csharp_repl.py" \
   --compile-ip 127.0.0.1 --compile-port 14500
 ```
 
-Python dependencies (`requests`, `prompt_toolkit`, `Pygments`) are installed automatically on first launch.
+Python 3.7+ is required. Python dependencies (`requests`, `prompt_toolkit`, `Pygments`) are installed automatically on first launch.
 
 ### Remote Runtime — Optional Settings
 

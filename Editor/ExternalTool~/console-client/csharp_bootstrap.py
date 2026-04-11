@@ -5,6 +5,27 @@ import sys
 
 _script_dir = os.path.dirname(os.path.abspath(__file__))
 _site_packages = os.path.join(_script_dir, "site-packages")
+MIN_SUPPORTED_PYTHON = (3, 7)
+
+
+def _format_python_version(version_info):
+    return ".".join(str(part) for part in version_info[:3])
+
+
+def ensure_supported_python(min_version=MIN_SUPPORTED_PYTHON):
+    if sys.version_info >= min_version:
+        return
+
+    required_version = ".".join(str(part) for part in min_version)
+    current_version = _format_python_version(sys.version_info)
+    print(
+        (
+            f"[bootstrap] Python {required_version}+ is required. "
+            f"Current interpreter: {current_version} ({sys.executable})"
+        ),
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
 
 
 def _file_hash(path):
@@ -90,4 +111,5 @@ def ensure_deps(requirements_filename, marker_name):
 
 
 def bootstrap_repl_dependencies():
+    ensure_supported_python()
     ensure_deps("requirements-repl.txt", ".installed-repl")
