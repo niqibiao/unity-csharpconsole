@@ -6,7 +6,6 @@ using UnityEngine.SceneManagement;
 #endif
 using Zh1Zh1.CSharpConsole.Service.Commands.Core;
 using Zh1Zh1.CSharpConsole.Service.Commands.Routing;
-using Zh1Zh1.CSharpConsole.Service.Internal;
 
 namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 {
@@ -42,29 +41,26 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction("scene", "hierarchy", editorOnly: true, summary: "Get the full scene hierarchy tree")]
         private static CommandResponse Hierarchy(int depth = -1, bool includeComponents = false)
         {
-            var result = MainThreadRequestRunner.RunOnMainThread(() =>
+            var scene = SceneManager.GetActiveScene();
+            var rootObjects = scene.GetRootGameObjects();
+            var nodeCount = 0;
+            const int maxNodes = 5000;
+
+            var roots = new List<HierarchyNode>();
+            foreach (var root in rootObjects)
             {
-                var scene = SceneManager.GetActiveScene();
-                var rootObjects = scene.GetRootGameObjects();
-                var nodeCount = 0;
-                const int maxNodes = 5000;
+                if (nodeCount >= maxNodes) break;
+                roots.Add(BuildNode(root.transform, depth, 0, includeComponents, ref nodeCount, maxNodes));
+            }
 
-                var roots = new List<HierarchyNode>();
-                foreach (var root in rootObjects)
-                {
-                    if (nodeCount >= maxNodes) break;
-                    roots.Add(BuildNode(root.transform, depth, 0, includeComponents, ref nodeCount, maxNodes));
-                }
+            var result = new HierarchyResult
+            {
+                sceneName = scene.name,
+                scenePath = scene.path ?? "",
+                roots = roots.ToArray()
+            };
 
-                return (result: new HierarchyResult
-                {
-                    sceneName = scene.name,
-                    scenePath = scene.path ?? "",
-                    roots = roots.ToArray()
-                }, totalNodes: nodeCount);
-            });
-
-            return CommandResponseFactory.Ok($"Hierarchy of '{result.result.sceneName}' ({result.totalNodes} nodes)", JsonUtility.ToJson(result.result));
+            return CommandResponseFactory.Ok($"Hierarchy of '{result.sceneName}' ({nodeCount} nodes)", JsonUtility.ToJson(result));
         }
 
         private static HierarchyNode BuildNode(Transform t, int maxDepth, int currentDepth, bool includeComponents, ref int nodeCount, int maxNodes)

@@ -91,6 +91,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
                 MaterialCommandActions.Register(router);
                 ScreenshotCommandActions.Register(router);
                 ProfilerCommandActions.Register(router);
+                AssetCommandActions.Register(router);
 
                 if (s_DiscoveryFailedVersion != configVersion || ShouldRetryDiscovery())
                 {

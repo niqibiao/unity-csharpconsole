@@ -240,8 +240,8 @@ Tab completion works for both command names and argument names.
 | | `playmode.exit` | Exit play mode |
 | | `menu.open` | Execute a menu item by path |
 | | `window.open` | Open an editor window by type name |
-| | `console.get` | Get editor console log entries |
 | | `console.clear` | Clear the editor console |
+| | `console.mark` | Write a searchable marker into the editor log and return the log file path |
 | **project** | `scene.list` | List all scenes in the project |
 | | `scene.open` | Open a scene by path |
 | | `scene.save` | Save the current scene |

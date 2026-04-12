@@ -60,7 +60,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction("gameobject", "find", editorOnly: true, summary: "Find GameObjects by name, tag, or component type")]
         private static CommandResponse Find(string name = "", string tag = "", string componentType = "")
         {
-            return CommandHelpers.MainThreadCommand<FindResult>(
+            return CommandHelpers.RunCommand<FindResult>(
                 () =>
                 {
                     Type componentFilter = null;
@@ -145,7 +145,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction("gameobject", "create", editorOnly: true, summary: "Create a new GameObject (empty or primitive)")]
         private static CommandResponse Create(string name = "", string primitiveType = "", string parentPath = "")
         {
-            return CommandHelpers.MainThreadCommand<CreateResult>(
+            return CommandHelpers.RunCommand<CreateResult>(
                 () =>
                 {
                     GameObject go;
@@ -200,7 +200,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction("gameobject", "destroy", editorOnly: true, summary: "Destroy a GameObject")]
         private static CommandResponse Destroy(string path = "", int instanceId = 0)
         {
-            return CommandHelpers.MainThreadCommand<DestroyResult>(
+            return CommandHelpers.RunCommand<DestroyResult>(
                 () =>
                 {
                     var go = CommandHelpers.ResolveGameObject(path, instanceId, out var error);
@@ -238,7 +238,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction("gameobject", "get", editorOnly: true, summary: "Get detailed info about a GameObject")]
         private static CommandResponse Get(string path = "", int instanceId = 0)
         {
-            return CommandHelpers.MainThreadCommand<GetResult>(
+            return CommandHelpers.RunCommand<GetResult>(
                 () =>
                 {
                     var go = CommandHelpers.ResolveGameObject(path, instanceId, out var error);
@@ -304,7 +304,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             int active = -1,
             int isStatic = -1)
         {
-            return CommandHelpers.MainThreadCommand<ModifyResult>(
+            return CommandHelpers.RunCommand<ModifyResult>(
                 () =>
                 {
                     var go = CommandHelpers.ResolveGameObject(path, instanceId, out var error);
@@ -347,7 +347,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             int parentInstanceId = 0,
             bool worldPositionStays = true)
         {
-            return CommandHelpers.MainThreadCommand<SetParentResult>(
+            return CommandHelpers.RunCommand<SetParentResult>(
                 () =>
                 {
                     var child = CommandHelpers.ResolveGameObject(path, instanceId, out var error);
@@ -368,15 +368,11 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     }
                     else
                     {
-                        // Undo.SetTransformParent has no worldPositionStays parameter,
-                        // so manually save/restore local transform to preserve local pose.
-                        var lp = child.transform.localPosition;
-                        var lr = child.transform.localRotation;
-                        var ls = child.transform.localScale;
-                        Undo.SetTransformParent(child.transform, parentTransform, "Set Parent");
-                        child.transform.localPosition = lp;
-                        child.transform.localRotation = lr;
-                        child.transform.localScale = ls;
+                        // Undo.SetTransformParent always uses worldPositionStays=true internally.
+                        // Use RecordObject + SetParent(false) so that both undo and redo correctly
+                        // preserve the local transform instead of restoring the world-space result.
+                        Undo.RecordObject(child.transform, "Set Parent");
+                        child.transform.SetParent(parentTransform, false);
                     }
 
                     return (error: (string)null, result: new SetParentResult
@@ -403,7 +399,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction("gameobject", "duplicate", editorOnly: true, summary: "Duplicate a GameObject")]
         private static CommandResponse Duplicate(string path = "", int instanceId = 0, string newName = "")
         {
-            return CommandHelpers.MainThreadCommand<DuplicateResult>(
+            return CommandHelpers.RunCommand<DuplicateResult>(
                 () =>
                 {
                     var source = CommandHelpers.ResolveGameObject(path, instanceId, out var error);

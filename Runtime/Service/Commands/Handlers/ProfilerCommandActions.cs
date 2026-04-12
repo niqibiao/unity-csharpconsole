@@ -6,7 +6,6 @@ using UnityEngine.Profiling;
 #endif
 using Zh1Zh1.CSharpConsole.Service.Commands.Core;
 using Zh1Zh1.CSharpConsole.Service.Commands.Routing;
-using Zh1Zh1.CSharpConsole.Service.Internal;
 
 namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 {
@@ -37,29 +36,26 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction("profiler", "start", editorOnly: true, summary: "Start Profiler recording")]
         private static CommandResponse Start(bool deep = false, string logFile = "")
         {
-            var result = MainThreadRequestRunner.RunOnMainThread(() =>
+            if (s_DeepProfilingProp != null)
             {
-                if (s_DeepProfilingProp != null)
-                {
-                    s_DeepProfilingProp.SetValue(null, deep);
-                }
+                s_DeepProfilingProp.SetValue(null, deep);
+            }
 
-                if (!string.IsNullOrEmpty(logFile))
-                {
-                    CommandHelpers.EnsureDirectoryExists(logFile);
-                    Profiler.logFile = logFile;
-                    Profiler.enableBinaryLog = true;
-                }
+            if (!string.IsNullOrEmpty(logFile))
+            {
+                CommandHelpers.EnsureDirectoryExists(logFile);
+                Profiler.logFile = logFile;
+                Profiler.enableBinaryLog = true;
+            }
 
-                Profiler.enabled = true;
+            Profiler.enabled = true;
 
-                return new StartResult
-                {
-                    started = Profiler.enabled,
-                    deepProfiling = deep,
-                    logFile = Profiler.logFile ?? ""
-                };
-            });
+            var result = new StartResult
+            {
+                started = Profiler.enabled,
+                deepProfiling = deep,
+                logFile = Profiler.logFile ?? ""
+            };
 
             return result.started
                 ? CommandResponseFactory.Ok("Profiler started", JsonUtility.ToJson(result))
@@ -75,14 +71,11 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction("profiler", "stop", editorOnly: true, summary: "Stop Profiler recording")]
         private static CommandResponse Stop()
         {
-            var result = MainThreadRequestRunner.RunOnMainThread(() =>
-            {
-                Profiler.enabled = false;
-                Profiler.enableBinaryLog = false;
-                Profiler.logFile = "";
+            Profiler.enabled = false;
+            Profiler.enableBinaryLog = false;
+            Profiler.logFile = "";
 
-                return new StopResult { stopped = !Profiler.enabled };
-            });
+            var result = new StopResult { stopped = !Profiler.enabled };
 
             return result.stopped
                 ? CommandResponseFactory.Ok("Profiler stopped", JsonUtility.ToJson(result))
@@ -101,20 +94,17 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction("profiler", "status", editorOnly: true, summary: "Get current Profiler state")]
         private static CommandResponse Status()
         {
-            var result = MainThreadRequestRunner.RunOnMainThread(() =>
-            {
-                var isDeep = s_DeepProfilingProp != null && (bool)s_DeepProfilingProp.GetValue(null);
-                var first = s_FirstFrameIndexProp != null ? (int)s_FirstFrameIndexProp.GetValue(null) : 0;
-                var last = s_LastFrameIndexProp != null ? (int)s_LastFrameIndexProp.GetValue(null) : 0;
+            var isDeep = s_DeepProfilingProp != null && (bool)s_DeepProfilingProp.GetValue(null);
+            var first = s_FirstFrameIndexProp != null ? (int)s_FirstFrameIndexProp.GetValue(null) : 0;
+            var last = s_LastFrameIndexProp != null ? (int)s_LastFrameIndexProp.GetValue(null) : 0;
 
-                return new StatusResult
-                {
-                    enabled = Profiler.enabled,
-                    deepProfiling = isDeep,
-                    logFile = Profiler.logFile ?? "",
-                    frameCount = Math.Max(0, last - first)
-                };
-            });
+            var result = new StatusResult
+            {
+                enabled = Profiler.enabled,
+                deepProfiling = isDeep,
+                logFile = Profiler.logFile ?? "",
+                frameCount = Math.Max(0, last - first)
+            };
 
             return CommandResponseFactory.Ok($"Profiler {(result.enabled ? "enabled" : "disabled")}", JsonUtility.ToJson(result));
         }
@@ -139,18 +129,15 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 return CommandResponseFactory.ValidationError("ProfilerDriver.SaveProfile is not available");
             }
 
-            var result = MainThreadRequestRunner.RunOnMainThread(() =>
-            {
-                CommandHelpers.EnsureDirectoryExists(savePath);
-                s_SaveProfileMethod.Invoke(null, new object[] { savePath });
-                var saved = System.IO.File.Exists(savePath);
+            CommandHelpers.EnsureDirectoryExists(savePath);
+            s_SaveProfileMethod.Invoke(null, new object[] { savePath });
+            var saved = System.IO.File.Exists(savePath);
 
-                return new SaveResult
-                {
-                    savePath = savePath,
-                    saved = saved
-                };
-            });
+            var result = new SaveResult
+            {
+                savePath = savePath,
+                saved = saved
+            };
 
             return result.saved
                 ? CommandResponseFactory.Ok($"Profiler data saved to '{result.savePath}'", JsonUtility.ToJson(result))

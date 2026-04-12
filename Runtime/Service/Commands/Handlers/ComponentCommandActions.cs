@@ -43,7 +43,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             if (string.IsNullOrEmpty(typeName))
                 return CommandResponseFactory.ValidationError("typeName is required for component/add");
 
-            return CommandHelpers.MainThreadCommand<AddResult>(
+            return CommandHelpers.RunCommand<AddResult>(
                 () =>
                 {
                     var go = CommandHelpers.ResolveGameObject(gameObjectPath, gameObjectInstanceId, out var error);
@@ -83,7 +83,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             if (string.IsNullOrEmpty(typeName))
                 return CommandResponseFactory.ValidationError("typeName is required for component/remove");
 
-            return CommandHelpers.MainThreadCommand<RemoveResult>(
+            return CommandHelpers.RunCommand<RemoveResult>(
                 () =>
                 {
                     var go = CommandHelpers.ResolveGameObject(gameObjectPath, gameObjectInstanceId, out var error);
@@ -96,8 +96,10 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     if (comps.Length == 0)
                         return (error: $"No component of type '{typeName}' found on '{go.name}'", result: (RemoveResult)null);
 
-                    var idx = Math.Max(0, Math.Min(index, comps.Length - 1));
-                    Undo.DestroyObjectImmediate(comps[idx]);
+                    if (index < 0 || index >= comps.Length)
+                        return (error: $"Component index {index} is out of range (0..{comps.Length - 1}) for type '{typeName}' on '{go.name}'", result: (RemoveResult)null);
+
+                    Undo.DestroyObjectImmediate(comps[index]);
 
                     return (error: (string)null, result: new RemoveResult
                     {
@@ -127,7 +129,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             if (string.IsNullOrEmpty(typeName))
                 return CommandResponseFactory.ValidationError("typeName is required for component/get");
 
-            return CommandHelpers.MainThreadCommand<GetResult>(
+            return CommandHelpers.RunCommand<GetResult>(
                 () =>
                 {
                     var go = CommandHelpers.ResolveGameObject(gameObjectPath, gameObjectInstanceId, out var error);
@@ -140,8 +142,10 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     if (comps.Length == 0)
                         return (error: $"No component of type '{typeName}' found on '{go.name}'", result: (GetResult)null);
 
-                    var idx = Math.Max(0, Math.Min(index, comps.Length - 1));
-                    var comp = comps[idx];
+                    if (index < 0 || index >= comps.Length)
+                        return (error: $"Component index {index} is out of range (0..{comps.Length - 1}) for type '{typeName}' on '{go.name}'", result: (GetResult)null);
+
+                    var comp = comps[index];
                     var so = new SerializedObject(comp);
                     var props = new List<PropertyInfo>();
                     var iter = so.GetIterator();
@@ -199,7 +203,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             if (fields == null || fields.Length == 0)
                 return CommandResponseFactory.ValidationError("fields array is required for component/modify");
 
-            return CommandHelpers.MainThreadCommand<ModifyResult>(
+            return CommandHelpers.RunCommand<ModifyResult>(
                 () =>
                 {
                     var go = CommandHelpers.ResolveGameObject(gameObjectPath, gameObjectInstanceId, out var error);
@@ -212,8 +216,10 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     if (comps.Length == 0)
                         return (error: $"No component of type '{typeName}' found on '{go.name}'", result: (ModifyResult)null);
 
-                    var idx = Math.Max(0, Math.Min(index, comps.Length - 1));
-                    var comp = comps[idx];
+                    if (index < 0 || index >= comps.Length)
+                        return (error: $"Component index {index} is out of range (0..{comps.Length - 1}) for type '{typeName}' on '{go.name}'", result: (ModifyResult)null);
+
+                    var comp = comps[index];
                     var so = new SerializedObject(comp);
 
                     var modifiedFields = new List<string>();

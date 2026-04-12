@@ -3,7 +3,7 @@ using System;
 namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
 {
     [Serializable]
-    internal sealed class CommandInvocation
+    public sealed class CommandInvocation
     {
         public string commandNamespace = "";
         public string action = "";

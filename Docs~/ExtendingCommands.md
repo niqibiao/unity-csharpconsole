@@ -53,8 +53,8 @@ public static class MyCommands
         public string prefabPath = "";
     }
 
-    [CommandAction("mygame", "spawn", editorOnly: true, runOnMainThread: true,
-        summary: "Spawn prefab instances")]
+    // runOnMainThread defaults to true — Unity API calls are safe.
+    [CommandAction("mygame", "spawn", editorOnly: true, summary: "Spawn prefab instances")]
     private static CommandResponse Spawn(string prefabPath, float x = 0, float y = 0, float z = 0, int count = 1)
     {
         if (string.IsNullOrEmpty(prefabPath))
@@ -107,12 +107,64 @@ Handler parameters are bound automatically from JSON args by name. No DTO classe
 
 ```csharp
 [CommandAction(
-    "namespace",           // Command namespace (required)
-    "action",              // Action name (required)
-    editorOnly: false,     // true = unavailable on Player builds
-    runOnMainThread: false,// true = dispatch to Unity main thread
-    summary: ""            // Human-readable description
+    "namespace",          // Command namespace (required)
+    "action",             // Action name (required)
+    editorOnly: false,    // true = unavailable on Player builds
+    runOnMainThread: true,// default true — the framework dispatches to the Unity main thread
+                          // Set false only when the handler self-dispatches internally
+    summary: ""           // Human-readable description
 )]
+```
+
+## Injected Parameters
+
+Declare a `CommandInvocation` parameter to receive request metadata. The framework injects it automatically and does not expose it in the command catalog or bind it from args:
+
+```csharp
+using Zh1Zh1.CSharpConsole.Service.Commands.Core;
+using Zh1Zh1.CSharpConsole.Service.Commands.Routing;
+
+public static class MyCommands
+{
+    [CommandAction("mygame", "status", summary: "Return session-aware status")]
+    private static (bool, string) Status(CommandInvocation inv)
+    {
+        return (true, $"Session: {inv.sessionId}");
+    }
+}
+```
+
+`CommandInvocation` exposes `commandNamespace`, `action`, `sessionId`, and the raw `argsJson`.
+
+## Editor Helper Utilities
+
+When writing editor commands, `CommandHelpers` (in `Zh1Zh1.CSharpConsole.Service.Commands.Handlers`) provides utilities that match the built-in handler conventions:
+
+| Method | Description |
+|--------|-------------|
+| `CommandHelpers.ResolveGameObject(path, instanceId, out error)` | Find a scene GameObject by hierarchy path or instance ID |
+| `CommandHelpers.FindByPath(path)` | Walk the scene hierarchy by path string |
+| `CommandHelpers.ResolveType(typeName, out error)` | Resolve a `Type` by name, with Unity namespace fallbacks |
+| `CommandHelpers.GetHierarchyPath(transform)` | Build the full `/Parent/Child` path for a transform |
+
+```csharp
+#if UNITY_EDITOR
+using UnityEngine;
+using Zh1Zh1.CSharpConsole.Service.Commands.Core;
+using Zh1Zh1.CSharpConsole.Service.Commands.Handlers;
+using Zh1Zh1.CSharpConsole.Service.Commands.Routing;
+
+public static class MyEditorCommands
+{
+    [CommandAction("mygame", "ping", editorOnly: true, summary: "Ping a GameObject")]
+    private static (bool, string) Ping(string path = "", int instanceId = 0)
+    {
+        var go = CommandHelpers.ResolveGameObject(path, instanceId, out var error);
+        if (go == null) return (false, error);
+        return (true, $"Found: {CommandHelpers.GetHierarchyPath(go.transform)}");
+    }
+}
+#endif
 ```
 
 ## Return Types
@@ -167,4 +219,4 @@ The `/batch` endpoint executes multiple commands in a single HTTP request, reduc
 }
 ```
 
-Commands execute sequentially. When `stopOnError` is `true`, execution halts on the first failure. The response includes per-command results and overall success/failure counts.
+Commands execute sequentially. When `stopOnError` is `true`, execution halts on the first failure and remaining commands are skipped. The response includes per-command results. The `total` field reflects the number of commands actually executed (not the number submitted), so `succeeded + failed == total` always holds.

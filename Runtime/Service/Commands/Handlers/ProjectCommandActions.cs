@@ -9,7 +9,6 @@ using UnityEngine.SceneManagement;
 #endif
 using Zh1Zh1.CSharpConsole.Service.Commands.Core;
 using Zh1Zh1.CSharpConsole.Service.Commands.Routing;
-using Zh1Zh1.CSharpConsole.Service.Internal;
 
 namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 {
@@ -81,26 +80,23 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction("project", "scene.list", editorOnly: true, summary: "List all scenes in the project")]
         private static CommandResponse SceneList()
         {
-            var result = MainThreadRequestRunner.RunOnMainThread(() =>
+            var guids = AssetDatabase.FindAssets("t:Scene");
+            var paths = new List<string>(guids.Length);
+            foreach (var guid in guids)
             {
-                var guids = AssetDatabase.FindAssets("t:Scene");
-                var paths = new List<string>(guids.Length);
-                foreach (var guid in guids)
+                var path = AssetDatabase.GUIDToAssetPath(guid);
+                if (!string.IsNullOrEmpty(path))
                 {
-                    var path = AssetDatabase.GUIDToAssetPath(guid);
-                    if (!string.IsNullOrEmpty(path))
-                    {
-                        paths.Add(path);
-                    }
+                    paths.Add(path);
                 }
+            }
 
-                paths.Sort(StringComparer.Ordinal);
-                return new SceneListResult
-                {
-                    activeScenePath = EditorSceneManager.GetActiveScene().path ?? "",
-                    scenes = paths.ToArray()
-                };
-            });
+            paths.Sort(StringComparer.Ordinal);
+            var result = new SceneListResult
+            {
+                activeScenePath = EditorSceneManager.GetActiveScene().path ?? "",
+                scenes = paths.ToArray()
+            };
 
             return CommandResponseFactory.Ok($"Listed {result.scenes.Length} scene(s)", JsonUtility.ToJson(result));
         }
@@ -121,87 +117,62 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 return CommandResponseFactory.ValidationError($"Unsupported scene open mode '{mode}'. Supported values: single, additive");
             }
 
-            var result = MainThreadRequestRunner.RunOnMainThread(() =>
-            {
-                if (AssetDatabase.LoadAssetAtPath<SceneAsset>(scenePath) == null)
-                {
-                    return (exists: false, hasDirtyScenesInSingleMode: false, opened: (SceneOpenResult)null);
-                }
-
-                var additive = isAdditiveMode;
-                if (!additive)
-                {
-                    for (var i = 0; i < SceneManager.sceneCount; i++)
-                    {
-                        var loadedScene = SceneManager.GetSceneAt(i);
-                        if (loadedScene.IsValid() && loadedScene.isLoaded && loadedScene.isDirty)
-                        {
-                            return (exists: true, hasDirtyScenesInSingleMode: true, opened: (SceneOpenResult)null);
-                        }
-                    }
-                }
-
-                var scene = EditorSceneManager.OpenScene(scenePath, additive ? OpenSceneMode.Additive : OpenSceneMode.Single);
-                return (exists: true, hasDirtyScenesInSingleMode: false, opened: new SceneOpenResult
-                {
-                    scenePath = scenePath,
-                    openedPath = scene.path ?? "",
-                    additive = additive
-                });
-            });
-
-            if (!result.exists)
+            if (AssetDatabase.LoadAssetAtPath<SceneAsset>(scenePath) == null)
             {
                 return CommandResponseFactory.ValidationError($"Scene was not found: {scenePath}");
             }
 
-            if (result.hasDirtyScenesInSingleMode)
+            var additive = isAdditiveMode;
+            if (!additive)
             {
-                return CommandResponseFactory.ValidationError("Cannot open scene in single mode while loaded scenes have unsaved changes");
+                for (var i = 0; i < SceneManager.sceneCount; i++)
+                {
+                    var loadedScene = SceneManager.GetSceneAt(i);
+                    if (loadedScene.IsValid() && loadedScene.isLoaded && loadedScene.isDirty)
+                    {
+                        return CommandResponseFactory.ValidationError("Cannot open scene in single mode while loaded scenes have unsaved changes");
+                    }
+                }
             }
 
-            return CommandResponseFactory.Ok($"Opened scene '{result.opened.openedPath}'", JsonUtility.ToJson(result.opened));
+            var scene = EditorSceneManager.OpenScene(scenePath, additive ? OpenSceneMode.Additive : OpenSceneMode.Single);
+            var result = new SceneOpenResult
+            {
+                scenePath = scenePath,
+                openedPath = scene.path ?? "",
+                additive = additive
+            };
+
+            return CommandResponseFactory.Ok($"Opened scene '{result.openedPath}'", JsonUtility.ToJson(result));
         }
 
         [CommandAction("project", "scene.save", editorOnly: true, summary: "Save the current scene")]
         private static CommandResponse SceneSave(string scenePath = "", bool saveAsCopy = false)
         {
-            var preflight = MainThreadRequestRunner.RunOnMainThread(() =>
+            var targetScenePath = scenePath;
+            if (string.IsNullOrEmpty(targetScenePath))
             {
-                if (!string.IsNullOrEmpty(scenePath))
-                {
-                    return (canSave: true, scenePath: scenePath);
-                }
-
                 var active = EditorSceneManager.GetActiveScene();
                 var activePath = active.path ?? "";
                 if (string.IsNullOrEmpty(activePath))
                 {
-                    return (canSave: false, scenePath: "");
+                    return CommandResponseFactory.ValidationError("scenePath is required for project/scene.save when active scene has no saved path");
                 }
 
-                return (canSave: true, scenePath: activePath);
-            });
-
-            if (!preflight.canSave)
-            {
-                return CommandResponseFactory.ValidationError("scenePath is required for project/scene.save when active scene has no saved path");
+                targetScenePath = activePath;
             }
 
-            var result = MainThreadRequestRunner.RunOnMainThread(() =>
-            {
-                var active = EditorSceneManager.GetActiveScene();
-                var saved = string.IsNullOrEmpty(scenePath)
-                    ? EditorSceneManager.SaveScene(active)
-                    : EditorSceneManager.SaveScene(active, scenePath, saveAsCopy);
+            var activeScene = EditorSceneManager.GetActiveScene();
+            var saved = string.IsNullOrEmpty(scenePath)
+                ? EditorSceneManager.SaveScene(activeScene)
+                : EditorSceneManager.SaveScene(activeScene, scenePath, saveAsCopy);
 
-                return new SceneSaveResult
-                {
-                    saved = saved,
-                    scenePath = preflight.scenePath,
-                    saveAsCopy = saveAsCopy
-                };
-            });
+            var result = new SceneSaveResult
+            {
+                saved = saved,
+                scenePath = targetScenePath,
+                saveAsCopy = saveAsCopy
+            };
 
             return result.saved
                 ? CommandResponseFactory.Ok($"Saved scene '{result.scenePath}'", JsonUtility.ToJson(result))
@@ -211,24 +182,21 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction("project", "selection.get", editorOnly: true, summary: "Get the current editor selection")]
         private static CommandResponse SelectionGet()
         {
-            var result = MainThreadRequestRunner.RunOnMainThread(() =>
+            var objects = Selection.objects ?? Array.Empty<UnityEngine.Object>();
+            var instanceIds = new int[objects.Length];
+            var assetPaths = new string[objects.Length];
+            for (var i = 0; i < objects.Length; i++)
             {
-                var objects = Selection.objects ?? Array.Empty<UnityEngine.Object>();
-                var instanceIds = new int[objects.Length];
-                var assetPaths = new string[objects.Length];
-                for (var i = 0; i < objects.Length; i++)
-                {
-                    instanceIds[i] = objects[i] ? objects[i].GetInstanceID() : 0;
-                    assetPaths[i] = objects[i] ? (AssetDatabase.GetAssetPath(objects[i]) ?? "") : "";
-                }
+                instanceIds[i] = objects[i] ? objects[i].GetInstanceID() : 0;
+                assetPaths[i] = objects[i] ? (AssetDatabase.GetAssetPath(objects[i]) ?? "") : "";
+            }
 
-                return new SelectionGetResult
-                {
-                    activeInstanceId = Selection.activeObject ? Selection.activeObject.GetInstanceID() : 0,
-                    instanceIds = instanceIds,
-                    assetPaths = assetPaths
-                };
-            });
+            var result = new SelectionGetResult
+            {
+                activeInstanceId = Selection.activeObject ? Selection.activeObject.GetInstanceID() : 0,
+                instanceIds = instanceIds,
+                assetPaths = assetPaths
+            };
 
             return CommandResponseFactory.Ok($"Selected {result.instanceIds.Length} object(s)", JsonUtility.ToJson(result));
         }
@@ -236,55 +204,52 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction("project", "selection.set", editorOnly: true, summary: "Set the editor selection by name or path")]
         private static CommandResponse SelectionSet(int[] instanceIds = null, string[] assetPaths = null)
         {
-            var result = MainThreadRequestRunner.RunOnMainThread(() =>
+            var selected = new List<UnityEngine.Object>();
+
+            if (instanceIds != null)
             {
-                var selected = new List<UnityEngine.Object>();
-
-                if (instanceIds != null)
+                foreach (var id in instanceIds)
                 {
-                    foreach (var id in instanceIds)
+                    var obj = EditorUtility.InstanceIDToObject(id);
+                    if (obj != null)
                     {
-                        var obj = EditorUtility.InstanceIDToObject(id);
-                        if (obj != null)
-                        {
-                            selected.Add(obj);
-                        }
+                        selected.Add(obj);
                     }
                 }
+            }
 
-                if (assetPaths != null)
+            if (assetPaths != null)
+            {
+                foreach (var path in assetPaths)
                 {
-                    foreach (var path in assetPaths)
+                    if (string.IsNullOrEmpty(path))
                     {
-                        if (string.IsNullOrEmpty(path))
-                        {
-                            continue;
-                        }
+                        continue;
+                    }
 
-                        var obj = AssetDatabase.LoadMainAssetAtPath(path);
-                        if (obj != null)
-                        {
-                            selected.Add(obj);
-                        }
+                    var obj = AssetDatabase.LoadMainAssetAtPath(path);
+                    if (obj != null)
+                    {
+                        selected.Add(obj);
                     }
                 }
+            }
 
-                var distinct = selected.Distinct().ToArray();
-                Selection.objects = distinct;
+            var distinct = selected.Distinct().ToArray();
+            Selection.objects = distinct;
 
-                var ids = new int[distinct.Length];
-                for (var i = 0; i < distinct.Length; i++)
-                {
-                    ids[i] = distinct[i].GetInstanceID();
-                }
+            var ids = new int[distinct.Length];
+            for (var i = 0; i < distinct.Length; i++)
+            {
+                ids[i] = distinct[i].GetInstanceID();
+            }
 
-                return new SelectionSetResult
-                {
-                    count = distinct.Length,
-                    activeInstanceId = Selection.activeObject ? Selection.activeObject.GetInstanceID() : 0,
-                    instanceIds = ids
-                };
-            });
+            var result = new SelectionSetResult
+            {
+                count = distinct.Length,
+                activeInstanceId = Selection.activeObject ? Selection.activeObject.GetInstanceID() : 0,
+                instanceIds = ids
+            };
 
             return CommandResponseFactory.Ok($"Selected {result.count} object(s)", JsonUtility.ToJson(result));
         }
@@ -292,30 +257,27 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction("project", "asset.list", editorOnly: true, summary: "List assets by type filter")]
         private static CommandResponse AssetList(string filter = "", string[] folders = null)
         {
-            var result = MainThreadRequestRunner.RunOnMainThread(() =>
+            var normalizedFilter = filter ?? "";
+            string[] searchFolders = null;
+            if (folders != null && folders.Length > 0)
             {
-                var normalizedFilter = filter ?? "";
-                string[] searchFolders = null;
-                if (folders != null && folders.Length > 0)
-                {
-                    searchFolders = folders;
-                }
+                searchFolders = folders;
+            }
 
-                var guids = AssetDatabase.FindAssets(normalizedFilter, searchFolders);
-                var paths = new string[guids.Length];
-                for (var i = 0; i < guids.Length; i++)
-                {
-                    paths[i] = AssetDatabase.GUIDToAssetPath(guids[i]) ?? "";
-                }
+            var guids = AssetDatabase.FindAssets(normalizedFilter, searchFolders);
+            var paths = new string[guids.Length];
+            for (var i = 0; i < guids.Length; i++)
+            {
+                paths[i] = AssetDatabase.GUIDToAssetPath(guids[i]) ?? "";
+            }
 
-                Array.Sort(paths, StringComparer.Ordinal);
-                return new AssetListResult
-                {
-                    filter = normalizedFilter,
-                    folders = searchFolders ?? Array.Empty<string>(),
-                    assetPaths = paths
-                };
-            });
+            Array.Sort(paths, StringComparer.Ordinal);
+            var result = new AssetListResult
+            {
+                filter = normalizedFilter,
+                folders = searchFolders ?? Array.Empty<string>(),
+                assetPaths = paths
+            };
 
             return CommandResponseFactory.Ok($"Listed {result.assetPaths.Length} asset(s)", JsonUtility.ToJson(result));
         }
@@ -339,68 +301,59 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 return CommandResponseFactory.ValidationError($"assetPath is required for project/{actionName}");
             }
 
-            var validationState = MainThreadRequestRunner.RunOnMainThread(() =>
+            var hasDirtyLoadedScenes = false;
+            var targetsLoadedSceneAsset = false;
+
+            for (var i = 0; i < SceneManager.sceneCount; i++)
             {
-                var targetPath = assetPath;
-                var hasDirtyLoadedScenes = false;
-                var targetsLoadedSceneAsset = false;
-
-                for (var i = 0; i < SceneManager.sceneCount; i++)
+                var loadedScene = SceneManager.GetSceneAt(i);
+                if (!loadedScene.IsValid() || !loadedScene.isLoaded)
                 {
-                    var loadedScene = SceneManager.GetSceneAt(i);
-                    if (!loadedScene.IsValid() || !loadedScene.isLoaded)
-                    {
-                        continue;
-                    }
-
-                    if (loadedScene.isDirty)
-                    {
-                        hasDirtyLoadedScenes = true;
-                    }
-
-                    var loadedScenePath = loadedScene.path ?? "";
-                    if (!string.IsNullOrEmpty(loadedScenePath)
-                        && string.Equals(loadedScenePath, targetPath, StringComparison.OrdinalIgnoreCase))
-                    {
-                        targetsLoadedSceneAsset = true;
-                    }
+                    continue;
                 }
 
-                return (hasDirtyLoadedScenes, targetsLoadedSceneAsset);
-            });
+                if (loadedScene.isDirty)
+                {
+                    hasDirtyLoadedScenes = true;
+                }
 
-            if (validationState.targetsLoadedSceneAsset)
+                var loadedScenePath = loadedScene.path ?? "";
+                if (!string.IsNullOrEmpty(loadedScenePath)
+                    && string.Equals(loadedScenePath, assetPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    targetsLoadedSceneAsset = true;
+                }
+            }
+
+            if (targetsLoadedSceneAsset)
             {
                 return CommandResponseFactory.ValidationError($"Cannot run project/{actionName} on currently loaded scene asset: {assetPath}");
             }
 
-            if (validationState.hasDirtyLoadedScenes && MayTriggerDomainReload(assetPath))
+            if (hasDirtyLoadedScenes && MayTriggerDomainReload(assetPath))
             {
                 return CommandResponseFactory.ValidationError($"Cannot run project/{actionName} while loaded scenes have unsaved changes (importing scripts triggers domain reload)");
             }
 
-            var result = MainThreadRequestRunner.RunOnMainThread(() =>
+            var options = ImportAssetOptions.Default;
+            if (forceSynchronousImport)
             {
-                var options = ImportAssetOptions.Default;
-                if (forceSynchronousImport)
-                {
-                    options |= ImportAssetOptions.ForceSynchronousImport;
-                }
+                options |= ImportAssetOptions.ForceSynchronousImport;
+            }
 
-                if (forceReimport)
-                {
-                    options |= ImportAssetOptions.ForceUpdate;
-                }
+            if (forceReimport)
+            {
+                options |= ImportAssetOptions.ForceUpdate;
+            }
 
-                AssetDatabase.ImportAsset(assetPath, options);
-                var exists = AssetDatabase.LoadMainAssetAtPath(assetPath) != null;
-                return new AssetImportResult
-                {
-                    assetPath = assetPath,
-                    imported = true,
-                    exists = exists
-                };
-            });
+            AssetDatabase.ImportAsset(assetPath, options);
+            var exists = AssetDatabase.LoadMainAssetAtPath(assetPath) != null;
+            var result = new AssetImportResult
+            {
+                assetPath = assetPath,
+                imported = true,
+                exists = exists
+            };
 
             return result.exists
                 ? CommandResponseFactory.Ok($"Imported asset '{result.assetPath}'", JsonUtility.ToJson(result))

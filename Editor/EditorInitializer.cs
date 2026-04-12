@@ -18,6 +18,7 @@ namespace Zh1Zh1.CSharpConsole.Editor
             }
 
             ConsoleHttpService.Shutdown();
+            EditorREPLCompiler.WarmUpDefaultDefines();
             // The editor may act as the compile server, so the runtime compiler must be initialized here.
             ConsoleHttpService.InitializeForEditor(() => new EditorREPLCompiler(), () => new REPLExecutor(), runtimeDllPath => new RuntimeREPLCompiler(runtimeDllPath));
             ConsoleLog.Info("CSharpConsole initialize finished");

@@ -6,19 +6,19 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 #endif
 using Zh1Zh1.CSharpConsole.Service.Commands.Core;
-using Zh1Zh1.CSharpConsole.Service.Internal;
 
 namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 {
-    internal static class CommandHelpers
+    public static class CommandHelpers
     {
 #if UNITY_EDITOR
-        internal static CommandResponse MainThreadCommand<TResult>(
+        // Caller is already on the main thread via the framework's runOnMainThread default.
+        internal static CommandResponse RunCommand<TResult>(
             Func<(string error, TResult result)> execute,
             Func<TResult, string> summarize)
             where TResult : class
         {
-            var result = MainThreadRequestRunner.RunOnMainThread(execute);
+            var result = execute();
 
             if (result.error != null)
                 return CommandResponseFactory.ValidationError(result.error);
@@ -26,7 +26,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             return CommandResponseFactory.Ok(summarize(result.result), JsonUtility.ToJson(result.result));
         }
 
-        internal static GameObject ResolveGameObject(string path, int instanceId, out string error)
+        public static GameObject ResolveGameObject(string path, int instanceId, out string error)
         {
             error = null;
 
@@ -56,11 +56,9 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             return null;
         }
 
-        internal static GameObject FindByPath(string path)
+        public static GameObject FindByPath(string path)
         {
             var segments = path.TrimStart('/').Split('/');
-            if (segments.Length == 0) return null;
-
             GameObject current = null;
             for (var s = 0; s < SceneManager.sceneCount; s++)
             {
@@ -94,7 +92,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 
         private static readonly Dictionary<string, Type> s_TypeCache = new(StringComparer.Ordinal);
 
-        internal static Type ResolveType(string typeName, out string error)
+        public static Type ResolveType(string typeName, out string error)
         {
             error = null;
 
@@ -155,7 +153,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             return null;
         }
 
-        internal static string GetHierarchyPath(Transform transform)
+        public static string GetHierarchyPath(Transform transform)
         {
             if (transform == null)
             {

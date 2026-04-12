@@ -37,7 +37,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             if (string.IsNullOrEmpty(savePath))
                 return CommandResponseFactory.ValidationError("savePath is required for prefab/create");
 
-            return CommandHelpers.MainThreadCommand<CreateResult>(
+            return CommandHelpers.RunCommand<CreateResult>(
                 () =>
                 {
                     var go = CommandHelpers.ResolveGameObject(gameObjectPath, gameObjectInstanceId, out var error);
@@ -76,12 +76,21 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             if (string.IsNullOrEmpty(assetPath))
                 return CommandResponseFactory.ValidationError("assetPath is required for prefab/instantiate");
 
-            return CommandHelpers.MainThreadCommand<InstantiateResult>(
+            return CommandHelpers.RunCommand<InstantiateResult>(
                 () =>
                 {
                     var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
                     if (prefab == null)
                         return (error: $"Prefab not found at '{assetPath}'", result: (InstantiateResult)null);
+
+                    Transform parentTransform = null;
+                    if (!string.IsNullOrEmpty(parentPath))
+                    {
+                        var parent = CommandHelpers.FindByPath(parentPath);
+                        if (parent == null)
+                            return (error: $"No GameObject found at parent path '{parentPath}'", result: (InstantiateResult)null);
+                        parentTransform = parent.transform;
+                    }
 
                     var instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
                     if (instance == null)
@@ -89,12 +98,9 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 
                     Undo.RegisterCreatedObjectUndo(instance, "Instantiate Prefab");
 
-                    if (!string.IsNullOrEmpty(parentPath))
+                    if (parentTransform != null)
                     {
-                        var parent = CommandHelpers.FindByPath(parentPath);
-                        if (parent == null)
-                            return (error: $"No GameObject found at parent path '{parentPath}'", result: (InstantiateResult)null);
-                        instance.transform.SetParent(parent.transform, false);
+                        instance.transform.SetParent(parentTransform, false);
                     }
 
                     if (position.HasValue)
@@ -124,7 +130,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction("prefab", "unpack", editorOnly: true, summary: "Unpack a prefab instance")]
         private static CommandResponse Unpack(string gameObjectPath = "", int gameObjectInstanceId = 0, bool full = false)
         {
-            return CommandHelpers.MainThreadCommand<UnpackResult>(
+            return CommandHelpers.RunCommand<UnpackResult>(
                 () =>
                 {
                     var go = CommandHelpers.ResolveGameObject(gameObjectPath, gameObjectInstanceId, out var error);

@@ -32,7 +32,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             if (string.IsNullOrEmpty(savePath))
                 return CommandResponseFactory.ValidationError("savePath is required for screenshot/scene-view");
 
-            return CommandHelpers.MainThreadCommand<ScreenshotResult>(
+            return CommandHelpers.RunCommand<ScreenshotResult>(
                 () =>
                 {
                     var sceneView = SceneView.lastActiveSceneView;
@@ -71,28 +71,32 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             if (string.IsNullOrEmpty(savePath))
                 return CommandResponseFactory.ValidationError("savePath is required for screenshot/game-view");
 
-            return CommandHelpers.MainThreadCommand<ScreenshotResult>(
+            var captureSuperSize = superSize > 0 ? superSize : 1;
+
+            if (EditorApplication.isPlaying)
+            {
+                // CaptureScreenshot schedules a write at end-of-frame; the file
+                // will not exist immediately after this command returns.
+                CommandHelpers.EnsureDirectoryExists(savePath);
+                ScreenCapture.CaptureScreenshot(savePath, captureSuperSize);
+
+                var screenWidth = Screen.width * captureSuperSize;
+                var screenHeight = Screen.height * captureSuperSize;
+                var result = new ScreenshotResult
+                {
+                    savePath = savePath,
+                    width = screenWidth,
+                    height = screenHeight
+                };
+
+                return CommandResponseFactory.Ok(
+                    $"Screenshot scheduled ({result.width}x{result.height}) — file will be written at end-of-frame",
+                    JsonUtility.ToJson(result));
+            }
+
+            return CommandHelpers.RunCommand<ScreenshotResult>(
                 () =>
                 {
-                    var captureSuperSize = superSize > 0 ? superSize : 1;
-
-                    if (EditorApplication.isPlaying)
-                    {
-                        // CaptureScreenshot writes asynchronously at end-of-frame.
-                        CommandHelpers.EnsureDirectoryExists(savePath);
-                        ScreenCapture.CaptureScreenshot(savePath, captureSuperSize);
-
-                        var screenWidth = Screen.width * captureSuperSize;
-                        var screenHeight = Screen.height * captureSuperSize;
-
-                        return (error: (string)null, result: new ScreenshotResult
-                        {
-                            savePath = savePath,
-                            width = screenWidth,
-                            height = screenHeight
-                        });
-                    }
-
                     var cam = Camera.main;
                     if (cam == null)
                     {

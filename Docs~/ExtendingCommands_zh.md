@@ -53,8 +53,8 @@ public static class MyCommands
         public string prefabPath = "";
     }
 
-    [CommandAction("mygame", "spawn", editorOnly: true, runOnMainThread: true,
-        summary: "Spawn prefab instances")]
+    // runOnMainThread 默认为 true，Unity API 调用是安全的。
+    [CommandAction("mygame", "spawn", editorOnly: true, summary: "Spawn prefab instances")]
     private static CommandResponse Spawn(string prefabPath, float x = 0, float y = 0, float z = 0, int count = 1)
     {
         if (string.IsNullOrEmpty(prefabPath))
@@ -107,12 +107,64 @@ Handler 参数从 JSON args 按名称自动绑定，不需要 DTO 类。
 
 ```csharp
 [CommandAction(
-    "namespace",           // 命令命名空间（必填）
-    "action",              // Action 名称（必填）
-    editorOnly: false,     // true = Player 构建中不可用
-    runOnMainThread: false,// true = 在 Unity 主线程执行
-    summary: ""            // 人类可读的描述
+    "namespace",          // 命令命名空间（必填）
+    "action",             // Action 名称（必填）
+    editorOnly: false,    // true = Player 构建中不可用
+    runOnMainThread: true,// 默认 true — 框架自动调度到 Unity 主线程
+                          // 仅当 handler 自行管理主线程调度时才设为 false
+    summary: ""           // 人类可读的描述
 )]
+```
+
+## 注入参数
+
+声明 `CommandInvocation` 参数可获取请求元数据。框架自动注入，不将其暴露到命令目录中，也不从 args 中绑定：
+
+```csharp
+using Zh1Zh1.CSharpConsole.Service.Commands.Core;
+using Zh1Zh1.CSharpConsole.Service.Commands.Routing;
+
+public static class MyCommands
+{
+    [CommandAction("mygame", "status", summary: "返回包含 session 信息的状态")]
+    private static (bool, string) Status(CommandInvocation inv)
+    {
+        return (true, $"Session: {inv.sessionId}");
+    }
+}
+```
+
+`CommandInvocation` 包含 `commandNamespace`、`action`、`sessionId` 以及原始 `argsJson`。
+
+## Editor 辅助工具
+
+编写 editor 命令时，`CommandHelpers`（位于 `Zh1Zh1.CSharpConsole.Service.Commands.Handlers`）提供与内置 handler 一致的工具方法：
+
+| 方法 | 说明 |
+|------|------|
+| `CommandHelpers.ResolveGameObject(path, instanceId, out error)` | 通过层级路径或 instanceId 查找场景中的 GameObject |
+| `CommandHelpers.FindByPath(path)` | 按路径字符串遍历场景层级 |
+| `CommandHelpers.ResolveType(typeName, out error)` | 按名称解析 `Type`，自动尝试 Unity 命名空间前缀 |
+| `CommandHelpers.GetHierarchyPath(transform)` | 构建 transform 的完整 `/Parent/Child` 路径 |
+
+```csharp
+#if UNITY_EDITOR
+using UnityEngine;
+using Zh1Zh1.CSharpConsole.Service.Commands.Core;
+using Zh1Zh1.CSharpConsole.Service.Commands.Handlers;
+using Zh1Zh1.CSharpConsole.Service.Commands.Routing;
+
+public static class MyEditorCommands
+{
+    [CommandAction("mygame", "ping", editorOnly: true, summary: "Ping 一个 GameObject")]
+    private static (bool, string) Ping(string path = "", int instanceId = 0)
+    {
+        var go = CommandHelpers.ResolveGameObject(path, instanceId, out var error);
+        if (go == null) return (false, error);
+        return (true, $"找到: {CommandHelpers.GetHierarchyPath(go.transform)}");
+    }
+}
+#endif
 ```
 
 ## 返回类型
@@ -167,4 +219,4 @@ Zh1Zh1.CSharpConsole.RuntimeInitializer.ConsoleInitialize();
 }
 ```
 
-命令按顺序执行。当 `stopOnError` 为 `true` 时，首次失败后停止执行。响应包含每个命令的结果和整体成功/失败计数。
+命令按顺序执行。当 `stopOnError` 为 `true` 时，首次失败后停止执行，剩余命令被跳过。响应包含每个命令的结果。`total` 字段反映实际执行的命令数（而非提交数），因此 `succeeded + failed == total` 始终成立。

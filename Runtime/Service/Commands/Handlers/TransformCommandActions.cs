@@ -33,7 +33,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction("transform", "get", editorOnly: true, summary: "Get a GameObject's transform values")]
         private static CommandResponse Get(string path = "", int instanceId = 0)
         {
-            return CommandHelpers.MainThreadCommand<GetResult>(
+            return CommandHelpers.RunCommand<GetResult>(
                 () =>
                 {
                     var go = CommandHelpers.ResolveGameObject(path, instanceId, out var error);
@@ -74,7 +74,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             Vector3? scale = null,
             bool local = true)
         {
-            return CommandHelpers.MainThreadCommand<SetResult>(
+            return CommandHelpers.RunCommand<SetResult>(
                 () =>
                 {
                     var go = CommandHelpers.ResolveGameObject(path, instanceId, out var error);

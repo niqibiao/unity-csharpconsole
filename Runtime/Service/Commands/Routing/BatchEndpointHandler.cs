@@ -151,7 +151,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
             return new BatchResponse
             {
                 ok = allOk,
-                total = commands.Length,
+                total = succeeded + failed,
                 succeeded = succeeded,
                 failed = failed,
                 resultsJson = "[" + string.Join(",", results) + "]"

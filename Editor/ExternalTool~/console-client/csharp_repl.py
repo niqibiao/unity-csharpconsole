@@ -2,6 +2,7 @@ import sys
 
 from csharp_bootstrap import bootstrap_repl_dependencies, ensure_supported_python
 ensure_supported_python()
+bootstrap_repl_dependencies()
 
 from repl import direct_launch as direct_launch_helpers
 from repl.launcher import (
@@ -10,8 +11,6 @@ from repl.launcher import (
     parse_repl_args,
     select_direct_launch_candidate,
 )
-
-bootstrap_repl_dependencies()
 
 from csharp_repl_core import run_repl
 

@@ -11,11 +11,12 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
         public bool runOnMainThread { get; }
         public string summary { get; }
 
+        // Default runOnMainThread: true so user extensions are safe by default.
         public CommandActionAttribute(
             string commandNamespace,
             string action,
             bool editorOnly = false,
-            bool runOnMainThread = false,
+            bool runOnMainThread = true,
             string summary = "")
         {
             this.commandNamespace = commandNamespace ?? "";

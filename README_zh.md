@@ -240,8 +240,8 @@ Tab 补全支持命令名和参数名。
 | | `playmode.exit` | 退出播放模式 |
 | | `menu.open` | 通过路径执行菜单项 |
 | | `window.open` | 通过类型名打开编辑器窗口 |
-| | `console.get` | 获取编辑器控制台日志 |
 | | `console.clear` | 清空编辑器控制台 |
+| | `console.mark` | 向编辑器日志写入可搜索标记并返回日志文件路径 |
 | **project** | `scene.list` | 列出项目中所有场景 |
 | | `scene.open` | 通过路径打开场景 |
 | | `scene.save` | 保存当前场景 |

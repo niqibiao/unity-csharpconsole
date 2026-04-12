@@ -14,6 +14,20 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
         {
         }
 
+        /// <summary>
+        /// Resolve and cache defines on the main thread so that background HTTP
+        /// threads never call CompilationPipeline.GetDefinesFromAssemblyName
+        /// (which internally requires EditorUserBuildSettings.activeBuildTarget).
+        /// Call this from InitializeOnLoadMethod or similar main-thread entrypoint.
+        /// </summary>
+        internal static void WarmUpDefaultDefines()
+        {
+            if (s_DefaultDefines == null)
+            {
+                s_DefaultDefines = ResolveDefaultDefines();
+            }
+        }
+
         private static string GetCachedDefaultDefines()
         {
             if (s_DefaultDefines == null)

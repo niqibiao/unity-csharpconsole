@@ -42,7 +42,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             if (string.IsNullOrEmpty(savePath))
                 return CommandResponseFactory.ValidationError("savePath is required for material/create");
 
-            return CommandHelpers.MainThreadCommand<CreateResult>(
+            return CommandHelpers.RunCommand<CreateResult>(
                 () =>
                 {
                     var resolvedShaderName = string.IsNullOrEmpty(shaderName) ? "Standard" : shaderName;
@@ -85,7 +85,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction("material", "get", editorOnly: true, summary: "Get material properties")]
         private static CommandResponse Get(string assetPath = "", string gameObjectPath = "")
         {
-            return CommandHelpers.MainThreadCommand<GetResult>(
+            return CommandHelpers.RunCommand<GetResult>(
                 () =>
                 {
                     Material mat = null;
@@ -183,7 +183,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             if (string.IsNullOrEmpty(materialPath))
                 return CommandResponseFactory.ValidationError("materialPath is required for material/assign");
 
-            return CommandHelpers.MainThreadCommand<AssignResult>(
+            return CommandHelpers.RunCommand<AssignResult>(
                 () =>
                 {
                     var go = CommandHelpers.ResolveGameObject(gameObjectPath, gameObjectInstanceId, out var error);
@@ -202,15 +202,17 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     if (materials.Length == 0)
                         return (error: $"Renderer on '{go.name}' has no material slots", result: (AssignResult)null);
 
-                    var idx = Math.Max(0, Math.Min(index, materials.Length - 1));
-                    materials[idx] = mat;
+                    if (index < 0 || index >= materials.Length)
+                        return (error: $"Material slot index {index} is out of range (0..{materials.Length - 1}) on '{go.name}'", result: (AssignResult)null);
+
+                    materials[index] = mat;
                     renderer.sharedMaterials = materials;
 
                     return (error: (string)null, result: new AssignResult
                     {
                         gameObjectPath = CommandHelpers.GetHierarchyPath(go.transform),
                         materialPath = materialPath,
-                        index = idx
+                        index = index
                     });
                 },
                 r => $"Assigned material to slot {r.index}"

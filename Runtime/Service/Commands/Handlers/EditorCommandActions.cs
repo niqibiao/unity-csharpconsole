@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 #if UNITY_EDITOR
+using System.Globalization;
+using System.IO;
 using System.Reflection;
 using UnityEditor;
 using UnityEngine;
@@ -45,20 +47,13 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         }
 
         [Serializable]
-        private sealed class ConsoleGetResult
+        private sealed class ConsoleMarkResult
         {
-            public bool available;
-            public int count;
-            public ConsoleEntry[] entries = Array.Empty<ConsoleEntry>();
-            public string error = "";
-        }
-
-        [Serializable]
-        private sealed class ConsoleEntry
-        {
-            public string condition = "";
-            public int mode;
-            public int instanceId;
+            public string logPath = "";
+            public string id = "";
+            public string label = "";
+            public string timestampUtc = "";
+            public string markerText = "";
         }
 
         private enum PlaymodeLifecycleState
@@ -72,11 +67,14 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         private static PlaymodeLifecycleState s_PlaymodeLifecycleState;
         private static bool s_PlaymodeLifecycleTrackingInitialized;
 
+        private static MethodInfo s_LogEntriesClearMethod;
+        private static bool s_LogEntriesClearResolved;
+
         [CommandAction("editor", "status", editorOnly: true, summary: "Get editor state and play mode info")]
         private static CommandResponse EditorStatus()
         {
             var health = ConsoleHttpService.BuildHealthResponseSnapshot();
-            var result = MainThreadRequestRunner.RunOnMainThread(() => new EditorStatusResult
+            var result = new EditorStatusResult
             {
                 initialized = health.initialized,
                 port = health.port,
@@ -87,7 +85,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 isPaused = EditorApplication.isPaused,
                 isCompiling = EditorApplication.isCompiling,
                 isUpdating = EditorApplication.isUpdating
-            });
+            };
 
             return CommandResponseFactory.Ok("Editor status fetched", JsonUtility.ToJson(result));
         }
@@ -95,21 +93,21 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction("editor", "playmode.status", editorOnly: true, summary: "Get current play mode state")]
         private static CommandResponse PlaymodeStatus()
         {
-            var result = MainThreadRequestRunner.RunOnMainThread(() => new PlaymodeStatusResult
+            var result = new PlaymodeStatusResult
             {
                 isPlaying = EditorApplication.isPlaying,
                 isPaused = EditorApplication.isPaused,
                 isPlayingOrWillChangePlaymode = EditorApplication.isPlayingOrWillChangePlaymode,
                 isCompiling = EditorApplication.isCompiling
-            });
+            };
 
             return CommandResponseFactory.Ok("Playmode status fetched", JsonUtility.ToJson(result));
         }
 
-        [CommandAction("editor", "playmode.enter", editorOnly: true, summary: "Enter play mode")]
+        [CommandAction("editor", "playmode.enter", editorOnly: true, runOnMainThread: false, summary: "Enter play mode")]
         private static CommandResponse EnterPlaymode() => SetPlaymode(enter: true);
 
-        [CommandAction("editor", "playmode.exit", editorOnly: true, summary: "Exit play mode")]
+        [CommandAction("editor", "playmode.exit", editorOnly: true, runOnMainThread: false, summary: "Exit play mode")]
         private static CommandResponse ExitPlaymode() => SetPlaymode(enter: false);
 
         private static CommandResponse SetPlaymode(bool enter)
@@ -154,20 +152,37 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             return CommandResponseFactory.ValidationError("editor/window.open is blocked in non-interactive mode due to modal-dialog risk");
         }
 
-        [CommandAction("editor", "console.get", editorOnly: true, summary: "Get editor console log entries")]
-        private static CommandResponse GetConsole()
-        {
-            var result = MainThreadRequestRunner.RunOnMainThread(GetConsoleEntries);
-            return CommandResponseFactory.Ok("Fetched editor console entries", JsonUtility.ToJson(result));
-        }
-
         [CommandAction("editor", "console.clear", editorOnly: true, summary: "Clear the editor console")]
         private static CommandResponse ClearConsole()
         {
-            var cleared = MainThreadRequestRunner.RunOnMainThread(ClearConsoleEntries);
+            var cleared = ClearConsoleEntries();
             return cleared
                 ? CommandResponseFactory.Ok("Cleared editor console", "{}")
                 : CommandResponseFactory.ValidationError("Editor console clear is unavailable on this Unity version");
+        }
+
+        [CommandAction("editor", "console.mark", editorOnly: true, summary: "Write a searchable marker into the editor log and return the log file path")]
+        private static CommandResponse MarkConsole(string label = "")
+        {
+            var markerId = Guid.NewGuid().ToString("N");
+            var timestampUtc = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+            var trimmedLabel = (label ?? "").Trim();
+            var markerText = string.IsNullOrEmpty(trimmedLabel)
+                ? $"[C#Console][ConsoleMark] id={markerId} utc={timestampUtc}"
+                : $"[C#Console][ConsoleMark] id={markerId} utc={timestampUtc} label={trimmedLabel}";
+
+            UnityEngine.Debug.Log(markerText);
+
+            var result = new ConsoleMarkResult
+            {
+                logPath = ResolveEditorLogPath(),
+                id = markerId,
+                label = trimmedLabel,
+                timestampUtc = timestampUtc,
+                markerText = markerText
+            };
+
+            return CommandResponseFactory.Ok($"Wrote console marker '{markerId}'", JsonUtility.ToJson(result));
         }
 
         private static string ValidatePlaymodeTransition(bool enter)
@@ -290,83 +305,73 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             };
         }
 
-        private static ConsoleGetResult GetConsoleEntries()
-        {
-            var result = new ConsoleGetResult();
-
-            try
-            {
-                var editorAssembly = typeof(EditorWindow).Assembly;
-                var logEntriesType = editorAssembly.GetType("UnityEditor.LogEntries");
-                var logEntryType = editorAssembly.GetType("UnityEditor.LogEntry");
-                if (logEntriesType == null || logEntryType == null)
-                {
-                    result.available = false;
-                    result.error = "UnityEditor.LogEntries API not found";
-                    return result;
-                }
-
-                var getCount = logEntriesType.GetMethod("GetCount", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                var getEntry = logEntriesType.GetMethod("GetEntryInternal", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                if (getCount == null || getEntry == null)
-                {
-                    result.available = false;
-                    result.error = "UnityEditor.LogEntries methods not found";
-                    return result;
-                }
-
-                result.available = true;
-                var count = (int)getCount.Invoke(null, null);
-                var maxCount = Math.Max(0, count);
-
-                var conditionField = logEntryType.GetField("condition", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                var modeField = logEntryType.GetField("mode", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                var instanceIdField = logEntryType.GetField("instanceID", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-
-                var collected = new List<ConsoleEntry>(maxCount);
-                for (var i = 0; i < maxCount; i++)
-                {
-                    var entry = Activator.CreateInstance(logEntryType);
-                    var read = (bool)getEntry.Invoke(null, new[] { i, entry });
-                    if (!read)
-                    {
-                        continue;
-                    }
-
-                    collected.Add(new ConsoleEntry
-                    {
-                        condition = conditionField?.GetValue(entry)?.ToString() ?? "",
-                        mode = modeField != null ? Convert.ToInt32(modeField.GetValue(entry)) : 0,
-                        instanceId = instanceIdField != null ? Convert.ToInt32(instanceIdField.GetValue(entry)) : 0
-                    });
-                }
-
-                result.entries = collected.ToArray();
-                result.count = result.entries.Length;
-            }
-            catch (Exception e)
-            {
-                result.available = false;
-                result.error = e.Message;
-                result.entries = Array.Empty<ConsoleEntry>();
-                result.count = 0;
-            }
-
-            return result;
-        }
-
         private static bool ClearConsoleEntries()
         {
-            var editorAssembly = typeof(EditorWindow).Assembly;
-            var logEntriesType = editorAssembly.GetType("UnityEditor.LogEntries");
-            var clear = logEntriesType?.GetMethod("Clear", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-            if (clear == null)
+            if (!s_LogEntriesClearResolved)
+            {
+                var logEntriesType = typeof(EditorWindow).Assembly.GetType("UnityEditor.LogEntries");
+                s_LogEntriesClearMethod = logEntriesType?.GetMethod("Clear", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                s_LogEntriesClearResolved = true;
+            }
+
+            if (s_LogEntriesClearMethod == null)
             {
                 return false;
             }
 
-            clear.Invoke(null, null);
+            s_LogEntriesClearMethod.Invoke(null, null);
             return true;
+        }
+
+        private static string ResolveEditorLogPath()
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(Application.consoleLogPath))
+                {
+                    return Application.consoleLogPath;
+                }
+            }
+            catch
+            {
+                // Fall back to Unity's default editor log locations below.
+            }
+
+            try
+            {
+                if (Application.platform == RuntimePlatform.WindowsEditor)
+                {
+                    var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                    if (!string.IsNullOrEmpty(localAppData))
+                    {
+                        return Path.Combine(localAppData, "Unity", "Editor", "Editor.log");
+                    }
+                }
+
+                if (Application.platform == RuntimePlatform.OSXEditor)
+                {
+                    var home = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
+                    if (!string.IsNullOrEmpty(home))
+                    {
+                        return Path.Combine(home, "Library", "Logs", "Unity", "Editor.log");
+                    }
+                }
+
+                if (Application.platform == RuntimePlatform.LinuxEditor)
+                {
+                    var home = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
+                    if (!string.IsNullOrEmpty(home))
+                    {
+                        return Path.Combine(home, ".config", "unity3d", "Editor.log");
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore fallback resolution failures and return empty below.
+            }
+
+            return "";
         }
 #endif
     }

@@ -55,8 +55,8 @@ There is no repo-local lint/format configuration in this package repo, and no st
 
 - `Runtime/Service/Commands/` is the independent command framework used by REPL `$namespace.action(...)` expressions.
 - `Commands/Core/` — `CommandDescriptor` (metadata schema with id, namespace, action, arguments, editorOnly flag), `CommandRegistry` (registration/discovery), `CommandDispatcher` (execution with main-thread support), `CommandArgumentBinder` (reflection-based JSON-to-parameter binding), `CommandDiscoveryOptions` and `ICommandAssemblyFilter` (configurable assembly scanning).
-- `Commands/Routing/` — `[CommandAction]` attribute-based discovery, `CommandRouter` (central routing with lazy init), `CommandHandlerBinding` (method-to-invoker binding with automatic parameter descriptors), `CommandEndpointHandler` (HTTP `/command` routing).
-- `Commands/Handlers/` — built-in command implementations: catalog listing, editor commands, project manipulation, session management (reset, inspect, list). Handlers use ASP.NET minimal API-style signatures — primitive parameters are declared directly and bound automatically from JSON args.
+- `Commands/Routing/` — `[CommandAction]` attribute-based discovery, `CommandRouter` (central routing with lazy init), `CommandHandlerBinding` (method-to-invoker binding with automatic parameter descriptors), `CommandEndpointHandler` (HTTP `/command` routing). The `[CommandAction]` attribute defaults `runOnMainThread: true`; most built-in handlers rely on this default and run handler code directly on the main thread. Handlers that self-manage threading (e.g. `playmode.enter/exit`) explicitly pass `runOnMainThread: false`.
+- `Commands/Handlers/` — built-in command implementations: catalog listing, editor commands, project manipulation, session management (reset, inspect, list). Handlers use ASP.NET minimal API-style signatures — primitive parameters are declared directly and bound automatically from JSON args. `CommandInvocation` can be declared as a parameter to receive `sessionId` and other request metadata (injected, not bound from args). `CommandHelpers` exposes public utilities (`ResolveGameObject`, `FindByPath`, `ResolveType`, `GetHierarchyPath`) for use in extension commands.
 
 ### Editor-only bootstrap and compilation
 
@@ -91,3 +91,4 @@ There is no repo-local lint/format configuration in this package repo, and no st
 - `AGENTS.md` mirrors this file for Codex; keep both in sync when updating.
 - `RELEASE.md` has the release checklist: bump `package.json` version, verify in `PackagesDemo`, then tag as `vX.Y.Z`.
 - Minimum Unity version is 2022.3 (`package.json`).
+- **unity-cli-plugin sync**: Whenever a commit adds, removes, or modifies commands (new `[CommandAction]`, changed parameters/return shape, renamed namespaces/actions) or changes the HTTP protocol (endpoint paths, request/response contracts in `Runtime/Service/Contracts/`), prompt: "This change may affect unity-cli-plugin — consider syncing it."
