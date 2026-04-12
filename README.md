@@ -204,7 +204,7 @@ Tab completion works for both command names and argument names.
 
 ## 📋 Built-in Actions
 
-46 built-in commands across 12 namespaces, covering editor control, scene manipulation, asset management, and more.
+50 built-in commands across 13 namespaces, covering editor control, scene manipulation, asset management, and more.
 
 | Namespace | Action | Description |
 |-----------|--------|-------------|
@@ -250,6 +250,10 @@ Tab completion works for both command names and argument names.
 | | `asset.list` | List assets by type filter |
 | | `asset.import` | Import an asset by path |
 | | `asset.reimport` | Reimport an asset by path |
+| **asset** | `move` | Move or rename an asset |
+| | `copy` | Copy an asset to a new path |
+| | `delete` | Delete one or more assets |
+| | `create_folder` | Create a folder in the Asset Database |
 | **session** | `list` | List active REPL sessions |
 | | `inspect` | Inspect a session's state |
 | | `reset` | Reset a session's compiler and executor |
@@ -268,7 +272,7 @@ See the full guide: **[Extending Commands](Docs~/ExtendingCommands.md)**
 | Dependency | Version |
 |------------|---------|
 | Unity | 2022.3+ (theoretically 2019+ compatible, but untested) |
-| Python | 3.x (on system `PATH`) |
+| Python | 3.7+ (on system `PATH`) |
 | Windows Terminal | Optional (falls back to Python directly) |
 
 ## 🔗 Related Projects
