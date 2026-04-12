@@ -1,0 +1,54 @@
+name: Create Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get previous tag
+        id: prev_tag
+        run: |
+          PREV=$(git tag --sort=-version:refname | grep '^v' | sed -n '2p')
+          echo "tag=${PREV:-}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          PREV="${{ steps.prev_tag.outputs.tag }}"
+          {
+            echo 'body<<RELEASE_EOF'
+            if [ -n "$PREV" ]; then
+              echo "## Changes since ${PREV}"
+              echo ""
+              git log --pretty=format:"- %s (%h)" "${PREV}..${TAG}"
+            else
+              echo "## Initial release"
+              echo ""
+              git log --pretty=format:"- %s (%h)" "${TAG}"
+            fi
+            echo ""
+            echo ""
+            echo "**Full changelog**: https://github.com/${{ github.repository }}/compare/${PREV:-$(git rev-list --max-parents=0 HEAD | head -1)}...${TAG}"
+            echo 'RELEASE_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: ${{ steps.notes.outputs.body }}
+          draft: false
+          prerelease: false
