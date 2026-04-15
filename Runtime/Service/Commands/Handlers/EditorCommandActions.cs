@@ -204,12 +204,17 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             bool isPlaying,
             PlaymodeLifecycleState lifecycleState)
         {
-            if (isCompiling || isUpdating)
+            if (isUpdating)
             {
-                return "Cannot change playmode while editor is compiling or updating";
+                return "Cannot change playmode while editor is updating";
             }
             if (enter)
             {
+                if (isCompiling)
+                {
+                    return "Cannot enter playmode while editor is compiling";
+                }
+
                 if (lifecycleState == PlaymodeLifecycleState.PlayMode || isPlaying)
                 {
                     return "Already in playmode";

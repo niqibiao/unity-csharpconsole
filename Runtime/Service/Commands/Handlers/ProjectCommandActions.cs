@@ -46,11 +46,20 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         }
 
         [Serializable]
+        private sealed class SelectionObjectInfo
+        {
+            public int instanceId;
+            public string name = "";
+            public string typeName = "";
+            public string assetPath = "";
+            public string hierarchyPath = "";
+        }
+
+        [Serializable]
         private sealed class SelectionGetResult
         {
             public int activeInstanceId;
-            public int[] instanceIds = Array.Empty<int>();
-            public string[] assetPaths = Array.Empty<string>();
+            public SelectionObjectInfo[] objects = Array.Empty<SelectionObjectInfo>();
         }
 
         [Serializable]
@@ -183,22 +192,43 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         private static CommandResponse SelectionGet()
         {
             var objects = Selection.objects ?? Array.Empty<UnityEngine.Object>();
-            var instanceIds = new int[objects.Length];
-            var assetPaths = new string[objects.Length];
+            var infos = new SelectionObjectInfo[objects.Length];
             for (var i = 0; i < objects.Length; i++)
             {
-                instanceIds[i] = objects[i] ? objects[i].GetInstanceID() : 0;
-                assetPaths[i] = objects[i] ? (AssetDatabase.GetAssetPath(objects[i]) ?? "") : "";
+                var obj = objects[i];
+                if (!obj)
+                {
+                    infos[i] = new SelectionObjectInfo();
+                    continue;
+                }
+
+                var info = new SelectionObjectInfo
+                {
+                    instanceId = obj.GetInstanceID(),
+                    name = obj.name,
+                    typeName = obj.GetType().Name,
+                    assetPath = AssetDatabase.GetAssetPath(obj) ?? ""
+                };
+
+                if (obj is GameObject go)
+                {
+                    info.hierarchyPath = CommandHelpers.GetHierarchyPath(go.transform);
+                }
+                else if (obj is Component comp)
+                {
+                    info.hierarchyPath = CommandHelpers.GetHierarchyPath(comp.transform);
+                }
+
+                infos[i] = info;
             }
 
             var result = new SelectionGetResult
             {
                 activeInstanceId = Selection.activeObject ? Selection.activeObject.GetInstanceID() : 0,
-                instanceIds = instanceIds,
-                assetPaths = assetPaths
+                objects = infos
             };
 
-            return CommandResponseFactory.Ok($"Selected {result.instanceIds.Length} object(s)", JsonUtility.ToJson(result));
+            return CommandResponseFactory.Ok($"Selected {result.objects.Length} object(s)", JsonUtility.ToJson(result));
         }
 
         [CommandAction("project", "selection.set", editorOnly: true, summary: "Set the editor selection by name or path")]

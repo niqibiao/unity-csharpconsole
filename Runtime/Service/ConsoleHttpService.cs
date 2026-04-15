@@ -115,8 +115,10 @@ namespace Zh1Zh1.CSharpConsole.Service
                 state.reloadObserved = true;
                 SetPhase(state, RefreshPhase.Ready);
                 state.message = "Service recovered after refresh";
-                SaveRefreshState(state);
             }
+            // Always persist so that direct-launch discovery can read the port
+            // even before any refresh cycle has run.
+            SaveRefreshState(state);
 #endif
 
             sw.Stop();

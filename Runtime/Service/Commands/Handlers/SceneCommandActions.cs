@@ -36,6 +36,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public string sceneName = "";
             public string scenePath = "";
             public HierarchyNode[] roots = Array.Empty<HierarchyNode>();
+            public HierarchyNode[] dontDestroyOnLoadRoots = Array.Empty<HierarchyNode>();
         }
 
         [CommandAction("scene", "hierarchy", editorOnly: true, summary: "Get the full scene hierarchy tree")]
@@ -53,14 +54,24 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 roots.Add(BuildNode(root.transform, depth, 0, includeComponents, ref nodeCount, maxNodes));
             }
 
+            // Include DontDestroyOnLoad scene objects
+            var ddolRoots = new List<HierarchyNode>();
+            foreach (var ddolRoot in CommandHelpers.GetDontDestroyOnLoadRootObjects())
+            {
+                if (nodeCount >= maxNodes) break;
+                ddolRoots.Add(BuildNode(ddolRoot.transform, depth, 0, includeComponents, ref nodeCount, maxNodes));
+            }
+
             var result = new HierarchyResult
             {
                 sceneName = scene.name,
                 scenePath = scene.path ?? "",
-                roots = roots.ToArray()
+                roots = roots.ToArray(),
+                dontDestroyOnLoadRoots = ddolRoots.ToArray()
             };
 
-            return CommandResponseFactory.Ok($"Hierarchy of '{result.sceneName}' ({nodeCount} nodes)", JsonUtility.ToJson(result));
+            var ddolSuffix = ddolRoots.Count > 0 ? $" + {ddolRoots.Count} DontDestroyOnLoad root(s)" : "";
+            return CommandResponseFactory.Ok($"Hierarchy of '{result.sceneName}' ({nodeCount} nodes{ddolSuffix})", JsonUtility.ToJson(result));
         }
 
         private static HierarchyNode BuildNode(Transform t, int maxDepth, int currentDepth, bool includeComponents, ref int nodeCount, int maxNodes)

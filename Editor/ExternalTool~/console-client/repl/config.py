@@ -26,6 +26,7 @@ runtime_ip = _state.runtime_ip
 runtime_port = _state.runtime_port
 runtime_dll_path = _state.runtime_dll_path
 runtime_defines_path = ""
+_initial_runtime_defines_path = ""
 parsed_args = _state.parsed_args
 
 
@@ -41,8 +42,9 @@ def normalize_argv(argv, default_command='repl'):
 
 
 def configure_globals(args):
-    global ip, port, runtime_mode, compile_ip, compile_port, runtime_ip, runtime_port, runtime_dll_path, runtime_defines_path, parsed_args, _RUNTIME_DEFINE_LINE_OVERRIDE
+    global ip, port, runtime_mode, compile_ip, compile_port, runtime_ip, runtime_port, runtime_dll_path, runtime_defines_path, _initial_runtime_defines_path, parsed_args, _RUNTIME_DEFINE_LINE_OVERRIDE
     runtime_defines_path = args.runtime_defines
+    _initial_runtime_defines_path = args.runtime_defines
     _RUNTIME_DEFINE_LINE_OVERRIDE = None
     configure_shared_globals(_state, args)
     parsed_args = _state.parsed_args
@@ -57,10 +59,11 @@ def configure_globals(args):
 
 
 def reset_cached_config():
-    global _DEFAULT_USING_PREFIX_CACHE, _DEFAULT_DEFINE_CACHE, _RUNTIME_DEFINE_LINE_CACHE
+    global _DEFAULT_USING_PREFIX_CACHE, _DEFAULT_DEFINE_CACHE, _RUNTIME_DEFINE_LINE_CACHE, runtime_defines_path
     _DEFAULT_USING_PREFIX_CACHE = None
     _DEFAULT_DEFINE_CACHE = None
     _RUNTIME_DEFINE_LINE_CACHE = None
+    runtime_defines_path = _initial_runtime_defines_path
 
 
 def current_mode_name():

@@ -86,6 +86,16 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                         }
                     }
 
+                    // Also search DontDestroyOnLoad scene
+                    if (collected.Count < maxResults)
+                    {
+                        foreach (var root in CommandHelpers.GetDontDestroyOnLoadRootObjects())
+                        {
+                            CollectMatching(root.transform, name, tag, componentFilter, collected, maxResults);
+                            if (collected.Count >= maxResults) break;
+                        }
+                    }
+
                     return (error: (string)null, result: new FindResult { gameObjects = collected.ToArray() });
                 },
                 r => $"Found {r.gameObjects.Length} GameObject(s)"

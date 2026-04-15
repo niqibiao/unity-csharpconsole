@@ -41,6 +41,9 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         {
             if (string.IsNullOrEmpty(savePath))
                 return CommandResponseFactory.ValidationError("savePath is required for material/create");
+            if (!savePath.StartsWith("Assets/", StringComparison.Ordinal) &&
+                !savePath.StartsWith("Assets\\", StringComparison.Ordinal))
+                return CommandResponseFactory.ValidationError("savePath must be under Assets/");
 
             return CommandHelpers.RunCommand<CreateResult>(
                 () =>

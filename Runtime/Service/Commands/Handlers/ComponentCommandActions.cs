@@ -19,13 +19,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         }
 
 #if UNITY_EDITOR
-        [Serializable]
-        private sealed class PropertyInfo
-        {
-            public string name = "";
-            public string type = "";
-            public string value = "";
-        }
+        // PropertyInfo is shared via CommandHelpers.PropertyInfo
 
         // ── add ──
 
@@ -120,7 +114,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public int gameObjectInstanceId;
             public string typeName = "";
             public int componentInstanceId;
-            public PropertyInfo[] properties = Array.Empty<PropertyInfo>();
+            public CommandHelpers.PropertyInfo[] properties = Array.Empty<CommandHelpers.PropertyInfo>();
         }
 
         [CommandAction("component", "get", editorOnly: true, summary: "Get serialized field data of a component")]
@@ -147,7 +141,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 
                     var comp = comps[index];
                     var so = new SerializedObject(comp);
-                    var props = new List<PropertyInfo>();
+                    var props = new List<CommandHelpers.PropertyInfo>();
                     var iter = so.GetIterator();
                     const int maxProperties = 200;
 
@@ -156,11 +150,11 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                         do
                         {
                             if (props.Count >= maxProperties) break;
-                            props.Add(new PropertyInfo
+                            props.Add(new CommandHelpers.PropertyInfo
                             {
                                 name = iter.name,
                                 type = iter.propertyType.ToString(),
-                                value = SerializedPropertyToString(iter)
+                                value = CommandHelpers.SerializedPropertyToString(iter)
                             });
                         } while (iter.NextVisible(false));
                     }
@@ -179,12 +173,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 
         // ── modify ──
 
-        [Serializable]
-        private sealed class FieldPair
-        {
-            public string name = "";
-            public string value = "";
-        }
+        // FieldPair is shared via CommandHelpers.FieldPair
 
         [Serializable]
         private sealed class ModifyResult
@@ -195,7 +184,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         }
 
         [CommandAction("component", "modify", editorOnly: true, summary: "Modify serialized fields of a component")]
-        private static CommandResponse Modify(FieldPair[] fields, string typeName, string gameObjectPath = "", int gameObjectInstanceId = 0, int index = 0)
+        private static CommandResponse Modify(CommandHelpers.FieldPair[] fields, string typeName, string gameObjectPath = "", int gameObjectInstanceId = 0, int index = 0)
         {
             if (string.IsNullOrEmpty(typeName))
                 return CommandResponseFactory.ValidationError("typeName is required for component/modify");
@@ -230,7 +219,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                         var prop = so.FindProperty(field.name);
                         if (prop == null) continue;
 
-                        if (TrySetSerializedProperty(prop, field.value))
+                        if (CommandHelpers.TrySetSerializedProperty(prop, field.value))
                         {
                             modifiedFields.Add(field.name);
                         }
@@ -249,97 +238,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             );
         }
 
-        // ── Helpers ──
-
-        private static string SerializedPropertyToString(SerializedProperty prop)
-        {
-            return prop.propertyType switch
-            {
-                SerializedPropertyType.Integer => prop.intValue.ToString(),
-                SerializedPropertyType.Boolean => prop.boolValue.ToString(),
-                SerializedPropertyType.Float => prop.floatValue.ToString("R"),
-                SerializedPropertyType.String => prop.stringValue ?? "",
-                SerializedPropertyType.Color => $"({prop.colorValue.r},{prop.colorValue.g},{prop.colorValue.b},{prop.colorValue.a})",
-                SerializedPropertyType.Vector2 => $"({prop.vector2Value.x},{prop.vector2Value.y})",
-                SerializedPropertyType.Vector3 => $"({prop.vector3Value.x},{prop.vector3Value.y},{prop.vector3Value.z})",
-                SerializedPropertyType.Vector4 => $"({prop.vector4Value.x},{prop.vector4Value.y},{prop.vector4Value.z},{prop.vector4Value.w})",
-                SerializedPropertyType.Enum => prop.enumNames != null && prop.enumValueIndex >= 0 && prop.enumValueIndex < prop.enumNames.Length
-                    ? prop.enumNames[prop.enumValueIndex]
-                    : prop.enumValueIndex.ToString(),
-                SerializedPropertyType.ObjectReference => prop.objectReferenceValue != null
-                    ? $"{prop.objectReferenceValue.name} ({prop.objectReferenceValue.GetInstanceID()})"
-                    : "null",
-                SerializedPropertyType.Rect => $"({prop.rectValue.x},{prop.rectValue.y},{prop.rectValue.width},{prop.rectValue.height})",
-                SerializedPropertyType.Bounds => $"center({prop.boundsValue.center.x},{prop.boundsValue.center.y},{prop.boundsValue.center.z}) size({prop.boundsValue.size.x},{prop.boundsValue.size.y},{prop.boundsValue.size.z})",
-                SerializedPropertyType.LayerMask => prop.intValue.ToString(),
-                _ => $"<{prop.propertyType}>"
-            };
-        }
-
-        private static bool TrySetSerializedProperty(SerializedProperty prop, string rawValue)
-        {
-            try
-            {
-                switch (prop.propertyType)
-                {
-                    case SerializedPropertyType.Integer:
-                        if (int.TryParse(rawValue, out var intVal)) { prop.intValue = intVal; return true; }
-                        break;
-                    case SerializedPropertyType.Float:
-                        if (float.TryParse(rawValue, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var floatVal)) { prop.floatValue = floatVal; return true; }
-                        break;
-                    case SerializedPropertyType.Boolean:
-                        if (bool.TryParse(rawValue, out var boolVal)) { prop.boolValue = boolVal; return true; }
-                        break;
-                    case SerializedPropertyType.String:
-                        prop.stringValue = rawValue;
-                        return true;
-                    case SerializedPropertyType.Enum:
-                        if (int.TryParse(rawValue, out var enumIdx)) { prop.enumValueIndex = enumIdx; return true; }
-                        if (prop.enumNames != null)
-                        {
-                            for (var ei = 0; ei < prop.enumNames.Length; ei++)
-                            {
-                                if (string.Equals(prop.enumNames[ei], rawValue, StringComparison.OrdinalIgnoreCase))
-                                {
-                                    prop.enumValueIndex = ei;
-                                    return true;
-                                }
-                            }
-                        }
-                        break;
-                    case SerializedPropertyType.Color:
-                        var color = JsonUtility.FromJson<Color>(rawValue);
-                        prop.colorValue = color;
-                        return true;
-                    case SerializedPropertyType.Vector2:
-                        var v2 = JsonUtility.FromJson<Vector2>(rawValue);
-                        prop.vector2Value = v2;
-                        return true;
-                    case SerializedPropertyType.Vector3:
-                        var v3 = JsonUtility.FromJson<Vector3>(rawValue);
-                        prop.vector3Value = v3;
-                        return true;
-                    case SerializedPropertyType.Vector4:
-                        var v4 = JsonUtility.FromJson<Vector4>(rawValue);
-                        prop.vector4Value = v4;
-                        return true;
-                    case SerializedPropertyType.ObjectReference:
-                        if (int.TryParse(rawValue, out var objId))
-                        {
-                            prop.objectReferenceValue = EditorUtility.InstanceIDToObject(objId);
-                            return true;
-                        }
-                        break;
-                }
-            }
-            catch
-            {
-                // Ignore parse failures for individual fields
-            }
-
-            return false;
-        }
+        // SerializedProperty helpers moved to CommandHelpers.SerializedPropertyToString / TrySetSerializedProperty
 #endif
     }
 }
