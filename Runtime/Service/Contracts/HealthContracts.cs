@@ -59,6 +59,8 @@ namespace Zh1Zh1.CSharpConsole.Service
         public string packageVersion = "";
         public int protocolVersion;
         public string unityVersion = "";
+        public bool isCompiling;
+        public int compileErrorCount;
         public RefreshOperationState operation = new();
     }
 

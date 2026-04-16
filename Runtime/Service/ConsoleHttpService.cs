@@ -480,8 +480,12 @@ namespace Zh1Zh1.CSharpConsole.Service
                 initialized = s_Initialized,
 #if UNITY_EDITOR
                 isEditor = true,
+                isCompiling = UnityEditor.EditorApplication.isCompiling,
+                compileErrorCount = 0,
 #else
                 isEditor = false,
+                isCompiling = false,
+                compileErrorCount = 0,
 #endif
                 port = Port,
                 refreshing = IsActiveRefreshPhase(state.PhaseValue),
