@@ -481,7 +481,7 @@ namespace Zh1Zh1.CSharpConsole.Service
 #if UNITY_EDITOR
                 isEditor = true,
                 isCompiling = UnityEditor.EditorApplication.isCompiling,
-                compileErrorCount = 0,
+                compileErrorCount = UnityEditor.EditorUtility.scriptCompilationFailed ? -1 : 0,
 #else
                 isEditor = false,
                 isCompiling = false,
