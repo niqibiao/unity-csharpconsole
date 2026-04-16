@@ -13,6 +13,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
         public bool runOnMainThread;
         public string declaringType = "";
         public string methodName = "";
+        public string commandType = "builtin";
         public CommandArgumentDescriptor[] arguments = Array.Empty<CommandArgumentDescriptor>();
     }
 }

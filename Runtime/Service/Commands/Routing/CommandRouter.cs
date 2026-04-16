@@ -192,6 +192,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
                 runOnMainThread = attribute.runOnMainThread,
                 declaringType = ownerType?.FullName ?? "",
                 methodName = method?.Name ?? "",
+                commandType = attribute.commandType == CommandType.Custom ? "custom" : "builtin",
                 arguments = arguments ?? Array.Empty<CommandArgumentDescriptor>()
             };
         }
