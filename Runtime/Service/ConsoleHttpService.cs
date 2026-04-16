@@ -530,7 +530,12 @@ namespace Zh1Zh1.CSharpConsole.Service
 
 #if UNITY_EDITOR
         private const string REFRESH_ACTION = "refresh_and_compile";
+        private const double REFRESH_GRACE_SECONDS = 2.0;
+        private const double REFRESH_TRIGGER_TIMEOUT_SECONDS = 10.0;
         private static RefreshOperationState s_CachedRefreshState;
+        private static long s_RefreshRequestedAtTicks;
+        private static double s_RefreshTriggeredAtEditorTime;
+        private static string[] s_PendingChangedFiles;
 
         private static string GetRefreshStatePath()
         {
@@ -756,6 +761,13 @@ namespace Zh1Zh1.CSharpConsole.Service
 
                     ClearSessionState();
 
+                    // Record request time (thread-safe) so OnEditorUpdate doesn't
+                    // use a stale s_RefreshTriggeredAtEditorTime from a previous refresh.
+                    s_RefreshRequestedAtTicks = DateTimeOffset.UtcNow.Ticks;
+
+                    // Pass explicit file list to TriggerRefresh (if provided).
+                    s_PendingChangedFiles = request?.changedFiles;
+
                     responseData = new RefreshResponse
                     {
                         ok = true,
@@ -768,8 +780,9 @@ namespace Zh1Zh1.CSharpConsole.Service
                         operation = nextState
                     };
 
-                    EditorApplication.delayCall -= TriggerRefresh;
-                    EditorApplication.delayCall += TriggerRefresh;
+                    // Schedule on main thread via the thread-safe dispatcher.
+                    // EditorApplication.delayCall is not reliable from HTTP threads.
+                    MainThreadRequestRunner.Post(TriggerRefresh);
                 }
             }
             catch (Exception e)
@@ -794,33 +807,39 @@ namespace Zh1Zh1.CSharpConsole.Service
             await WriteEnvelopeResponseAsync(context, envelope, "Refresh");
         }
 
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(System.IntPtr hWnd);
+
+        /// <summary>
+        /// Bring the Unity Editor window to the foreground so the OS file watcher
+        /// queue is flushed.  This makes AssetDatabase.Refresh() reliable even
+        /// when Unity was running in the background.
+        /// </summary>
+        private static void ActivateEditorWindow()
+        {
+            try
+            {
+                var hwnd = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
+                if (hwnd != System.IntPtr.Zero)
+                    SetForegroundWindow(hwnd);
+            }
+            catch { /* best-effort, non-Windows platforms ignore this */ }
+        }
+
         private static void TriggerRefresh()
         {
             try
             {
-                UpdateRefreshState(state =>
-                {
-                    SetPhase(state, RefreshPhase.RefreshingAssets);
-                    state.message = "AssetDatabase.Refresh started";
-                });
+                s_RefreshTriggeredAtEditorTime = EditorApplication.timeSinceStartup;
 
-                AssetDatabase.Refresh();
-                CompilationPipeline.RequestScriptCompilation();
+                // Consume the pending file list (set by ProcessRefresh on the HTTP thread).
+                var explicitFiles = s_PendingChangedFiles;
+                s_PendingChangedFiles = null;
 
-                UpdateRefreshState(state =>
-                {
-                    state.compileRequested = true;
-                    if (EditorApplication.isCompiling)
-                    {
-                        SetPhase(state, RefreshPhase.Compiling);
-                        state.message = "Script compilation requested";
-                    }
-                    else
-                    {
-                        SetPhase(state, RefreshPhase.RefreshingAssets);
-                        state.message = "Waiting for compilation or idle completion";
-                    }
-                });
+                if (explicitFiles != null && explicitFiles.Length > 0)
+                    TriggerRefreshTargeted(explicitFiles);
+                else
+                    TriggerRefreshFull();
             }
             catch (Exception e)
             {
@@ -828,6 +847,100 @@ namespace Zh1Zh1.CSharpConsole.Service
                 ConsoleLog.Warning($"Refresh failed: {e}");
             }
         }
+
+        /// <summary>
+        /// Targeted refresh: caller provides exact file paths.
+        /// Fast — no directory scanning, works for any path (Assets/, Packages/, etc.).
+        /// </summary>
+        private static void TriggerRefreshTargeted(string[] files)
+        {
+            UpdateRefreshState(state =>
+            {
+                SetPhase(state, RefreshPhase.RefreshingAssets);
+                state.message = $"Importing {files.Length} file(s)";
+            });
+
+            var scriptCount = 0;
+            var otherCount = 0;
+            try
+            {
+                AssetDatabase.StartAssetEditing();
+                foreach (var path in files)
+                {
+                    AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate | ImportAssetOptions.ForceSynchronousImport);
+                    if (path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+                        scriptCount++;
+                    else
+                        otherCount++;
+                }
+            }
+            finally
+            {
+                AssetDatabase.StopAssetEditing();
+            }
+
+            if (scriptCount > 0)
+                CompilationPipeline.RequestScriptCompilation();
+
+            UpdateRefreshState(state =>
+            {
+                state.compileRequested = scriptCount > 0;
+                if (EditorApplication.isCompiling)
+                {
+                    SetPhase(state, RefreshPhase.Compiling);
+                    state.message = $"Compiling ({scriptCount} script(s), {otherCount} asset(s) updated)";
+                }
+                else
+                {
+                    SetPhase(state, RefreshPhase.RefreshingAssets);
+                    state.message = scriptCount > 0
+                        ? $"Waiting for compilation ({scriptCount} script(s), {otherCount} asset(s) updated)"
+                        : $"{otherCount} non-script asset(s) refreshed";
+                }
+            });
+        }
+
+        /// <summary>
+        /// Full refresh: no file list provided.
+        /// Activates the editor window to flush file-watcher events, then
+        /// lets AssetDatabase.Refresh() handle everything — detection, import,
+        /// compilation, and domain reload are all managed by Unity.
+        /// </summary>
+        private static void TriggerRefreshFull()
+        {
+            UpdateRefreshState(state =>
+            {
+                SetPhase(state, RefreshPhase.RefreshingAssets);
+                state.message = "Activating editor and refreshing assets";
+            });
+
+            // Bring editor to foreground so the OS file-watcher queue is flushed.
+            // Without this, Refresh() misses external changes when Unity is in the background.
+            ActivateEditorWindow();
+
+            // Unity handles everything: detect changes, import, trigger compilation.
+            AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+
+            UpdateRefreshState(state =>
+            {
+                state.compileRequested = EditorApplication.isCompiling;
+                if (EditorApplication.isCompiling)
+                {
+                    SetPhase(state, RefreshPhase.Compiling);
+                    state.message = "Compiling after full asset refresh";
+                }
+                else
+                {
+                    SetPhase(state, RefreshPhase.RefreshingAssets);
+                    state.message = "Asset refresh completed";
+                }
+            });
+        }
+
+        // ImportChangedScripts and timestamp persistence removed —
+        // full-refresh mode now uses ActivateEditorWindow() + AssetDatabase.Refresh()
+        // which lets Unity handle all detection, import, and compilation natively.
+        // Targeted mode (changedFiles) uses ImportAsset directly in TriggerRefreshTargeted.
 
         private static void OnCompilationStarted(object _)
         {
@@ -906,16 +1019,33 @@ namespace Zh1Zh1.CSharpConsole.Service
                 return;
             }
 
-            if (state.PhaseValue == RefreshPhase.Requested || state.PhaseValue == RefreshPhase.RefreshingAssets)
+            // Requested phase: TriggerRefresh hasn't run yet (scheduled via delayCall).
+            // Wait for it — only apply a safety timeout to prevent infinite hang.
+            if (state.PhaseValue == RefreshPhase.Requested)
             {
-                if (state.compileRequested)
-                {
-                    MarkRefreshReady("Refresh completed without observable compilation work");
-                }
-                else
+                var elapsedSec = (DateTimeOffset.UtcNow.Ticks - s_RefreshRequestedAtTicks) / (double)TimeSpan.TicksPerSecond;
+                if (elapsedSec < REFRESH_TRIGGER_TIMEOUT_SECONDS)
+                    return;
+                MarkRefreshReady("Refresh trigger timed out");
+                return;
+            }
+
+            if (state.PhaseValue == RefreshPhase.RefreshingAssets)
+            {
+                // No script changes — no compilation expected, done immediately.
+                if (!state.compileRequested)
                 {
                     MarkRefreshReady("Asset refresh completed without script compilation");
+                    return;
                 }
+
+                // Scripts were imported and compilation was requested.
+                // With ForceSynchronousImport, isCompiling usually becomes true
+                // immediately; this grace period is a safety net.
+                if (EditorApplication.timeSinceStartup - s_RefreshTriggeredAtEditorTime < REFRESH_GRACE_SECONDS)
+                    return;
+
+                MarkRefreshReady("Refresh completed without observable compilation work");
             }
         }
 

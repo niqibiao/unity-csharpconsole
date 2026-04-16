@@ -66,6 +66,7 @@ namespace Zh1Zh1.CSharpConsole.Service
     internal class RefreshRequest
     {
         public bool exitPlayModeIfNeeded;
+        public string[] changedFiles;
     }
 
     [Serializable]
