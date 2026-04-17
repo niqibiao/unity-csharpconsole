@@ -481,11 +481,11 @@ namespace Zh1Zh1.CSharpConsole.Service
 #if UNITY_EDITOR
                 isEditor = true,
                 isCompiling = UnityEditor.EditorApplication.isCompiling,
-                compileErrorCount = UnityEditor.EditorUtility.scriptCompilationFailed ? -1 : 0,
+                compileFailed = UnityEditor.EditorUtility.scriptCompilationFailed,
 #else
                 isEditor = false,
                 isCompiling = false,
-                compileErrorCount = 0,
+                compileFailed = false,
 #endif
                 port = Port,
                 refreshing = IsActiveRefreshPhase(state.PhaseValue),

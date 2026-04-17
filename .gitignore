@@ -2,6 +2,7 @@
 .tmp
 .claude/
 .claude.meta
+.obsidian/
 docs
 docs.meta
 CLAUDE.md
