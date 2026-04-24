@@ -229,6 +229,7 @@ def build_session_style_rules():
         ("transcript.result.text", "ansiwhite"),
         ("transcript.info.prefix", "bold ansibrightblack"),
         ("transcript.info.text", "ansibrightblack"),
+        ("warmup.text", "bold ansicyan"),
         ("transcript.error.compile_error.prefix", "bold ansiwhite bg:ansired"),
         ("transcript.error.compile_error.text", "ansiwhite bg:ansired"),
         ("transcript.error.timeout_error.prefix", "bold ansiblack bg:ansiyellow"),

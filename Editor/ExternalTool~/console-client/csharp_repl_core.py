@@ -1,6 +1,8 @@
 import asyncio
 import os
 import sys
+import threading
+import time
 import uuid
 from datetime import datetime
 
@@ -17,7 +19,7 @@ from prompt_toolkit.key_binding.bindings.emacs import load_emacs_search_bindings
 from prompt_toolkit.key_binding.bindings.mouse import load_mouse_bindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout import HSplit, Layout, VSplit, Window
-from prompt_toolkit.layout.containers import Float, FloatContainer
+from prompt_toolkit.layout.containers import ConditionalContainer, Float, FloatContainer, WindowAlign
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.lexers import PygmentsLexer
@@ -131,7 +133,6 @@ def _reset_prompt_transient_state():
 def _submit_current_buffer(event):
     _reset_prompt_transient_state()
     text = event.app.current_buffer.document.text
-    session.history.append_string(text)
 
     shell = ensure_prompt_session()
     interactive_callback = getattr(shell, "_on_submit", None)
@@ -139,6 +140,7 @@ def _submit_current_buffer(event):
         shell.handle_submitted_message(text, event)
         return
 
+    session.history.append_string(text)
     event.app.exit(result=text)
 
 
@@ -341,6 +343,7 @@ class ReplApplicationShell:
         self._on_submit = None
         self._pending_external_open = None
         self._external_open_task_active = False
+        self._startup_pending = False
         self.search_toolbar = SearchToolbar(
             backward_search_prompt="",
             forward_search_prompt="",
@@ -387,18 +390,39 @@ class ReplApplicationShell:
         self.footer_line_2_left = FormattedTextControl(lambda: session_ui.build_footer_common_shortcuts_text(), focusable=False)
         self.footer_line_2_right = FormattedTextControl(lambda: session_ui.build_footer_session_text(config, cmd_id), focusable=False)
 
+        startup_pending = Condition(lambda: self._startup_pending)
+        warmup_panel = HSplit(
+            [
+                Window(),
+                Window(
+                    content=FormattedTextControl(lambda: [("class:warmup.text", _STARTUP_HINT_TEXT)]),
+                    height=1,
+                    align=WindowAlign.CENTER,
+                ),
+                Window(),
+            ]
+        )
+
         root = HSplit(
             [
-                self.transcript_window,
-                Window(content=self.input_divider, height=1),
-                VSplit(
-                    [
-                        Window(content=FormattedTextControl(self._render_prompt_message), width=self._get_prompt_width(), height=self._get_input_height, dont_extend_width=True),
-                        Window(content=self.input_control, wrap_lines=True, height=self._get_input_height),
-                    ],
-                    height=self._get_input_height,
+                ConditionalContainer(
+                    content=HSplit(
+                        [
+                            self.transcript_window,
+                            Window(content=self.input_divider, height=1),
+                            VSplit(
+                                [
+                                    Window(content=FormattedTextControl(self._render_prompt_message), width=self._get_prompt_width(), height=self._get_input_height, dont_extend_width=True),
+                                    Window(content=self.input_control, wrap_lines=True, height=self._get_input_height),
+                                ],
+                                height=self._get_input_height,
+                            ),
+                            Window(content=self.search_buffer_control, height=1),
+                        ]
+                    ),
+                    filter=~startup_pending,
                 ),
-                Window(content=self.search_buffer_control, height=1),
+                ConditionalContainer(content=warmup_panel, filter=startup_pending),
                 VSplit(
                     [
                         Window(content=self.footer_line_1_left, height=1),
@@ -552,6 +576,9 @@ class ReplApplicationShell:
         self.scroll_transcript_to_bottom()
 
     def handle_submitted_message(self, text, event=None):
+        if self._startup_pending:
+            return
+        self.history.append_string(text)
         if callable(self._on_submit):
             self._on_submit(text)
         self.default_buffer.reset(Document(""))
@@ -703,6 +730,73 @@ def _build_startup_snippet(runtime_mode):
     return f'$"Connected — Unity {{UnityEngine.Application.unityVersion}}, {{UnityEngine.Application.platform}}{mode}. Type / to see available commands."'
 
 
+_STARTUP_HINT_TEXT = "Warming up Unity Roslyn compiler — first startup may take a few seconds..."
+_MIN_WARMUP_VISIBLE_SECONDS = 1.0
+
+
+def _post_to_ui_thread(shell, fn, timeout_seconds=5.0):
+    # Worker thread hands a callable back to the prompt-toolkit event loop.
+    # app.loop is None until app.run() starts, so poll briefly.
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        loop = getattr(shell.app, "loop", None)
+        if loop is not None:
+            try:
+                loop.call_soon_threadsafe(fn)
+                return
+            except RuntimeError:
+                pass
+        time.sleep(0.01)
+    fn()
+
+
+def _kickoff_startup_snippet():
+    shell = ensure_prompt_session()
+    shell._startup_pending = True
+
+    snippet = _build_startup_snippet(config.runtime_mode)
+    runtime_mode = config.runtime_mode
+    session_id = cmd_id
+
+    start_time = time.monotonic()
+
+    def _worker():
+        try:
+            if runtime_mode:
+                result = client.execute_runtime_request(
+                    snippet, session_id, invalidate_completion=roslyn_completer.invalidate
+                )
+            else:
+                result = client.execute_editor_request(
+                    snippet, session_id, invalidate_completion=roslyn_completer.invalidate
+                )
+            entry = output.build_result_entry(result, _extract_text_from_data)
+        except Exception as e:
+            from csharpconsole_core.models import make_result
+            fallback = make_result(
+                False, "execute", "system_error", 3,
+                f"Startup snippet failed: {e}", session_id,
+                "runtime" if runtime_mode else "editor",
+            )
+            entry = output.build_result_entry(fallback, _extract_text_from_data)
+
+        remaining = _MIN_WARMUP_VISIBLE_SECONDS - (time.monotonic() - start_time)
+        if remaining > 0:
+            time.sleep(remaining)
+
+        def _apply():
+            shell._startup_pending = False
+            try:
+                shell.app.layout.focus(shell.input_control)
+            except Exception:
+                pass
+            shell.append_result_transcript_entry(entry)
+
+        _post_to_ui_thread(shell, _apply)
+
+    threading.Thread(target=_worker, name="csharp-repl-startup-snippet", daemon=True).start()
+
+
 def start_repl():
     global cmd_id
     shell = ensure_prompt_session()
@@ -717,7 +811,7 @@ def start_repl():
         config.runtime_defines_path,
         _build_startup_banner,
         print_help_info,
-        lambda: execute_repl_snippet(_build_startup_snippet(config.runtime_mode)),
+        _kickoff_startup_snippet,
         process_builtin_cmd,
         try_process_command_expression,
         lambda message: execute_repl_snippet(message),
