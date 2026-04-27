@@ -91,6 +91,7 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
             var options = new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
                 .WithOptimizationLevel(OptimizationLevel.Release)
                 .WithMetadataImportOptions(MetadataImportOptions.All)
+                .WithAllowUnsafe(true)
                 .WithScriptClassName(scriptClassName);
 
             SetIgnoreAccessibility(options);
@@ -336,7 +337,8 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
 
             var prevCompilation = Volatile.Read(ref m_PreviousCompilation);
             var options = new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
-                .WithMetadataImportOptions(MetadataImportOptions.All);
+                .WithMetadataImportOptions(MetadataImportOptions.All)
+                .WithAllowUnsafe(true);
             SetIgnoreAccessibility(options);
 
             var compilation = CSharpCompilation.CreateScriptCompilation(

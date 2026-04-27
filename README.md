@@ -31,6 +31,7 @@ English | [中文](README_zh.md)
 | **@** | **Command Framework** | Extensible `[CommandAction]` commands with automatic JSON-to-parameter binding (positional & named args), `/batch` endpoint for multi-command workflows |
 | **Tab** | **Semantic Completion** | Real-time member, namespace, and type completions directly from Roslyn |
 | **🔓** | **Private Member Access** | Bypass `private` / `protected` / `internal` access modifiers at compile time for deep inspection |
+| **⏸** | **Debug While Paused** | Submit code while the Editor is paused in Play Mode — inspect transient state captured at the exact frame, without losing the snapshot |
 | **📡** | **Remote Execution** | Compile in the Editor, execute on a connected Player build (IL2CPP via HybridCLR) |
 
 ### How It Looks
