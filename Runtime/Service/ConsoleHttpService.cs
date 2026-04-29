@@ -233,7 +233,23 @@ namespace Zh1Zh1.CSharpConsole.Service
                 var contentType = rawContentType?.Split(';')[0].Trim().ToLowerInvariant();
                 var path = context.Request.Url.AbsolutePath.ToLowerInvariant();
 
-                await DispatchRequestByContentType(context, contentType, path);
+                try
+                {
+                    await DispatchRequestByContentType(context, contentType, path);
+                }
+                catch (Exception dispatchEx)
+                {
+                    ConsoleLog.Error($"Dispatch failed on path={path} contentType={contentType}: {dispatchEx}");
+                    try
+                    {
+                        context.Response.StatusCode = 500;
+                        context.Response.Close();
+                    }
+                    catch
+                    {
+                        // Client may have already disconnected; nothing more we can do.
+                    }
+                }
             }
         }
 
@@ -480,8 +496,8 @@ namespace Zh1Zh1.CSharpConsole.Service
                 initialized = s_Initialized,
 #if UNITY_EDITOR
                 isEditor = true,
-                isCompiling = UnityEditor.EditorApplication.isCompiling,
-                compileFailed = UnityEditor.EditorUtility.scriptCompilationFailed,
+                isCompiling = s_CachedIsCompiling,
+                compileFailed = s_CachedCompileFailed,
 #else
                 isEditor = false,
                 isCompiling = false,
@@ -540,6 +556,18 @@ namespace Zh1Zh1.CSharpConsole.Service
         private static long s_RefreshRequestedAtTicks;
         private static double s_RefreshTriggeredAtEditorTime;
         private static string[] s_PendingChangedFiles;
+
+        // Cached on the main thread so /health (background HTTP thread) can read
+        // them safely. UnityEditor.EditorUtility.scriptCompilationFailed throws
+        // UnityException when accessed off-main-thread on Unity 2022.3.
+        private static volatile bool s_CachedIsCompiling;
+        private static volatile bool s_CachedCompileFailed;
+
+        private static void RefreshCompilationFlagCache()
+        {
+            s_CachedIsCompiling = EditorApplication.isCompiling;
+            s_CachedCompileFailed = EditorUtility.scriptCompilationFailed;
+        }
 
         private static string GetRefreshStatePath()
         {
@@ -705,6 +733,7 @@ namespace Zh1Zh1.CSharpConsole.Service
             AssemblyReloadEvents.afterAssemblyReload += OnAfterAssemblyReload;
             EditorApplication.update -= OnEditorUpdate;
             EditorApplication.update += OnEditorUpdate;
+            RefreshCompilationFlagCache();
         }
 
         private static async Task ProcessRefresh(HttpListenerContext context)
@@ -999,6 +1028,8 @@ namespace Zh1Zh1.CSharpConsole.Service
 
         private static void OnEditorUpdate()
         {
+            RefreshCompilationFlagCache();
+
             var state = GetRefreshStateSnapshot();
             if (!IsActiveRefreshPhase(state.PhaseValue))
             {
