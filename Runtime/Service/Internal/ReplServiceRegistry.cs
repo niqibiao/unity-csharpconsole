@@ -3,13 +3,19 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using Zh1Zh1.CSharpConsole.Interface;
+using Zh1Zh1.CSharpConsole.Lite;
 
 namespace Zh1Zh1.CSharpConsole.Service.Internal
 {
     internal sealed class ReplServiceRegistry
     {
         private readonly ConcurrentDictionary<(string uuid, string path), IREPLExecutor> _executors = new();
+        private readonly ConcurrentDictionary<string, ILiteREPLExecutor> _liteExecutors = new();
         private readonly ConcurrentDictionary<(string uuid, string path), IREPLCompiler> _compilers = new();
+        // Lite compiler + type registry share session lifetime, key, and eviction
+        // — bundling them prevents the "one slot dropped, the other lingered"
+        // bug class and halves cleanup surface.
+        private readonly ConcurrentDictionary<string, LiteEditorSession> _liteSessions = new();
         private readonly ConcurrentDictionary<string, double> _lastAccessTimes = new();
         private const double DEFAULT_IDLE_TIMEOUT_SECONDS = 21600.0; // 6 hours
 
@@ -27,6 +33,37 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
             var executor = _executors.GetOrAdd(key, _ => generator.Invoke());
             TouchSession(uuid ?? "");
             return executor;
+        }
+
+        public ILiteREPLExecutor FetchLiteExecutor(string uuid, Func<ILiteREPLExecutor> generator)
+        {
+            var key = uuid ?? "";
+            var executor = _liteExecutors.GetOrAdd(key, _ => generator.Invoke());
+            TouchSession(key);
+            return executor;
+        }
+
+        public bool RemoveLiteExecutor(string sessionId)
+        {
+            return _liteExecutors.TryRemove(sessionId ?? "", out _);
+        }
+
+        public bool HasLiteExecutorForSession(string sessionId)
+        {
+            return _liteExecutors.ContainsKey(sessionId ?? "");
+        }
+
+        public LiteEditorSession FetchLiteSession(string uuid, Func<ILiteCompiler> compilerGenerator)
+        {
+            var key = uuid ?? "";
+            var session = _liteSessions.GetOrAdd(key, _ => new LiteEditorSession(compilerGenerator.Invoke(), new SessionTypeRegistry()));
+            TouchSession(key);
+            return session;
+        }
+
+        public bool RemoveLiteSession(string sessionId)
+        {
+            return _liteSessions.TryRemove(sessionId ?? "", out _);
         }
 
         public IREPLCompiler FetchRuntimeREPLCompiler(string uuid, string runtimeDllPath, Func<string, IREPLCompiler> generator)
@@ -62,6 +99,8 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
         public bool ResetSessionState(string sessionId)
         {
             var removedAny = _executors.TryRemove((sessionId ?? "", ""), out _);
+            if (_liteExecutors.TryRemove(sessionId ?? "", out _)) removedAny = true;
+            if (_liteSessions.TryRemove(sessionId ?? "", out _)) removedAny = true;
             foreach (var key in _compilers.Keys)
             {
                 if (string.Equals(key.uuid, sessionId, StringComparison.Ordinal)
@@ -103,6 +142,18 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
                 state.hasCompiler = true;
             }
 
+            foreach (var sessionId in _liteExecutors.Keys)
+            {
+                if (string.IsNullOrEmpty(sessionId)) continue;
+                GetOrCreateState(states, sessionId).hasExecutor = true;
+            }
+
+            foreach (var sessionId in _liteSessions.Keys)
+            {
+                if (string.IsNullOrEmpty(sessionId)) continue;
+                GetOrCreateState(states, sessionId).hasCompiler = true;
+            }
+
             return states.Values.OrderBy(state => state.sessionId, StringComparer.Ordinal).ToList();
         }
 
@@ -115,6 +166,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
                     _compilers.TryRemove(key, out _);
                 }
             }
+            _liteSessions.TryRemove(sessionId ?? "", out _);
         }
 
         private static SessionStateInfo GetOrCreateState(Dictionary<string, SessionStateInfo> states, string sessionId)
@@ -131,7 +183,9 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
         public void ClearAll()
         {
             _executors.Clear();
+            _liteExecutors.Clear();
             _compilers.Clear();
+            _liteSessions.Clear();
             _lastAccessTimes.Clear();
         }
 
@@ -166,5 +220,17 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
             }
         }
 
+    }
+
+    internal sealed class LiteEditorSession
+    {
+        public readonly ILiteCompiler Compiler;
+        public readonly SessionTypeRegistry Registry;
+
+        public LiteEditorSession(ILiteCompiler compiler, SessionTypeRegistry registry)
+        {
+            Compiler = compiler;
+            Registry = registry;
+        }
     }
 }

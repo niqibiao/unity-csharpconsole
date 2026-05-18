@@ -10,6 +10,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Zh1Zh1.CSharpConsole.Interface;
+using Zh1Zh1.CSharpConsole.Lite;
 using Zh1Zh1.CSharpConsole.Service.Commands.Routing;
 using Zh1Zh1.CSharpConsole.Service.Endpoints;
 using Zh1Zh1.CSharpConsole.Service.Internal;
@@ -31,6 +32,7 @@ namespace Zh1Zh1.CSharpConsole.Service
         private static Func<IREPLCompiler> s_EditorREPLCompilerGenerator;
         private static Func<IREPLExecutor> s_RuntimeREPLExecutorGenerator;
         private static Func<string, IREPLCompiler> s_RuntimeREPLCompilerGenerator;
+        private static Func<ILiteCompiler> s_LiteCompilerGenerator;
 
         private static HttpListener s_Listener;
         private static bool s_Initialized;
@@ -63,13 +65,14 @@ namespace Zh1Zh1.CSharpConsole.Service
 #endif
         }
 
-        public static void InitializeForEditor( Func<IREPLCompiler> editorCompilerGenerator, Func<IREPLExecutor> editorExecutorGenerator, Func<string, IREPLCompiler> runtimeCompilerGenerator)
+        public static void InitializeForEditor( Func<IREPLCompiler> editorCompilerGenerator, Func<IREPLExecutor> editorExecutorGenerator, Func<string, IREPLCompiler> runtimeCompilerGenerator, Func<ILiteCompiler> liteCompilerGenerator)
         {
 #if UNITY_EDITOR
             MainThreadRequestRunner.InitializeEditor();
             s_EditorREPLCompilerGenerator = editorCompilerGenerator ?? throw new ArgumentNullException(nameof(editorCompilerGenerator));
             s_EditorREPLExecutorGenerator = editorExecutorGenerator ?? throw new ArgumentNullException(nameof(editorExecutorGenerator));
             s_RuntimeREPLCompilerGenerator = runtimeCompilerGenerator ?? throw new ArgumentNullException(nameof(runtimeCompilerGenerator));
+            s_LiteCompilerGenerator = liteCompilerGenerator ?? throw new ArgumentNullException(nameof(liteCompilerGenerator));
             InitializeInternal();
 #else
             throw new InvalidOperationException("InitializeForEditor can only be called in the Unity Editor.");
@@ -81,6 +84,12 @@ namespace Zh1Zh1.CSharpConsole.Service
 #if UNITY_EDITOR
             throw new InvalidOperationException("InitializeForRuntime can only be called in the Unity Runtime.");
 #else
+            // REPL service is a hard dependency on Update() ticking. Standalone
+            // Player defaults to runInBackground=false, which pauses Update()
+            // when the window loses focus — that strands MainThreadRequestRunner
+            // dispatches and every /execute times out. Force it on here so
+            // consumers don't have to remember to set it in their bootstrap.
+            Application.runInBackground = true;
             MainThreadRequestRunner.InitializeRuntime();
             s_RuntimeREPLExecutorGenerator = runtimeExecutorGenerator ?? throw new ArgumentNullException(nameof(runtimeExecutorGenerator));
             InitializeInternal();
@@ -502,6 +511,7 @@ namespace Zh1Zh1.CSharpConsole.Service
                 isEditor = false,
                 isCompiling = false,
                 compileFailed = false,
+                playerExecutorMode = s_PlayerExecutorMode,
 #endif
                 port = Port,
                 refreshing = IsActiveRefreshPhase(state.PhaseValue),
@@ -513,6 +523,34 @@ namespace Zh1Zh1.CSharpConsole.Service
                 operation = state
             };
         }
+
+#if !UNITY_EDITOR
+        // Player-only: detected once at static init by walking AppDomain for the
+        // HybridCLR runtime API. Cached to avoid per-/health reflection cost.
+        // Returns "hybridCLR" when HybridCLR's `HybridCLR.RuntimeApi` is reachable;
+        // empty string otherwise — we deliberately do NOT claim "lite" yet, because
+        // the Lite executor (Roslyn → Expression interpreter path) is still under
+        // research (see Phase B in Docs~/ExpressionInterpreter*) and is NOT
+        // registered as a runtime executor. Returning "lite" before the executor
+        // ships would be a false capability signal — the banner could read
+        // `executor=lite` while /execute still tries Assembly.Load and fails.
+        // Future commit re-enables "lite" once LiteREPLExecutor is in place.
+        private static readonly string s_PlayerExecutorMode = DetectPlayerExecutorMode();
+
+        private static string DetectPlayerExecutorMode()
+        {
+            foreach (var asm in System.AppDomain.CurrentDomain.GetAssemblies())
+            {
+                System.Type t = null;
+                try { t = asm.GetType("HybridCLR.RuntimeApi", throwOnError: false); }
+                catch { /* assembly load issues — keep scanning */ }
+                if (t != null) return "hybridCLR";
+            }
+            // LiteREPLExecutor ships with the package, so a player without
+            // HybridCLR is always Lite-capable.
+            return "lite";
+        }
+#endif
 
         private static async Task WriteJsonResponseAsync(HttpListenerContext context, string responseJson)
         {
@@ -1153,7 +1191,8 @@ namespace Zh1Zh1.CSharpConsole.Service
                 var runtimeDllPath = req.runtimeDllPath ?? "";
                 var reset = req.reset;
 
-                ConsoleLog.Debug($"Runtime compile request: codeLength={code.Length}, session={uuid}, target={targetIP}:{targetPort}, runtimeDllPath={runtimeDllPath}, reset={reset}");
+                var executorMode = req.executorMode ?? "";
+                ConsoleLog.Debug($"Runtime compile request: codeLength={code.Length}, session={uuid}, target={targetIP}:{targetPort}, runtimeDllPath={runtimeDllPath}, reset={reset}, executorMode={executorMode}");
 
                 if (reset)
                 {
@@ -1165,6 +1204,10 @@ namespace Zh1Zh1.CSharpConsole.Service
                     s_ReplServiceRegistry.RemoveCompilersForSession(uuid);
 
                     result = await ForwardReset(targetIP, targetPort, uuid);
+                }
+                else if (executorMode == "lite")
+                {
+                    result = await CompileAndForwardLiteAsync(uuid, code, defaultUsing, targetIP, targetPort);
                 }
                 else
                 {
@@ -1245,6 +1288,113 @@ namespace Zh1Zh1.CSharpConsole.Service
                 reset = false
             };
             return await PostToPlayer(ip, port, request, "DLL");
+        }
+
+        // Editor-side Lite compile + forward. Per Docs~/ExpressionInterpreterFeasibility_zh.md
+        // §3.1: editor runs Roslyn -> Expression -> hand-rolled binary; player
+        // just decodes and interprets. Single-flight per session is enforced by
+        // the REPL client serializing /compile (same convention HybridCLR uses).
+        private static async Task<string> CompileAndForwardLiteAsync(string uuid, string code, string defaultUsing, string ip, string port)
+        {
+            LiteEditorSession session;
+            byte[] bodyBytes;
+            TypeRegEntryDto[] deltaDtos;
+            int epoch;
+            try
+            {
+                session = s_ReplServiceRegistry.FetchLiteSession(uuid, s_LiteCompilerGenerator);
+                var lambda = session.Compiler.CompileToLambda(code, defaultUsing);
+                var writer = new LiteWireWriter(session.Registry, session.Compiler.Slots);
+                bodyBytes = writer.WriteRoot(lambda);
+                var delta = session.Registry.FlushDelta();
+                deltaDtos = new TypeRegEntryDto[delta.Count];
+                for (int i = 0; i < delta.Count; i++)
+                {
+                    deltaDtos[i] = new TypeRegEntryDto { id = delta[i].Id, aqn = delta[i].Aqn };
+                }
+                epoch = session.Registry.Epoch;
+            }
+            catch (LiteCompilerException ex)
+            {
+                return $"Lite compile failed [{ex.ErrorCode}]: {ex.Message}";
+            }
+            catch (Exception ex)
+            {
+                return $"Lite compile failed: {ex.Message}";
+            }
+
+            var request = new ExecuteREPLRequest
+            {
+                bodyBinary = Convert.ToBase64String(bodyBytes),
+                typeReg = deltaDtos,
+                registryEpoch = epoch,
+                uuid = uuid,
+                reset = false
+            };
+
+            var (text, transportOk) = await PostLiteToPlayerAsync(ip, port, request);
+            if (!transportOk)
+            {
+                // Delta flushed locally but the player never received it. Bump
+                // epoch so the next submission starts from a clean slot — full
+                // auto-resync (player IngestResync + editor PrepareResync retry)
+                // is a P1 follow-up; v1 surfaces the failure and lets the
+                // client :reset.
+                session.Registry.BumpEpoch();
+            }
+            return text;
+        }
+
+        // Lite-aware version of PostToPlayer that decodes LiteExecuteResponseData
+        // out of the envelope instead of falling back to TextResponseData (which
+        // silently drops needsResync / errorCode / serverEpoch).
+        private static async Task<(string text, bool transportOk)> PostLiteToPlayerAsync(string ip, string port, ExecuteREPLRequest request)
+        {
+            try
+            {
+                var url = $"http://{ip}:{port}/CSharpConsole/execute";
+                var jsonBytes = Encoding.UTF8.GetBytes(JsonUtility.ToJson(request));
+                using var content = new ByteArrayContent(jsonBytes);
+                content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+
+                using var response = await s_HttpClient.PostAsync(url, content);
+                var raw = await response.Content.ReadAsStringAsync();
+                if (!response.IsSuccessStatusCode)
+                {
+                    return (ConsoleLog.Format($"Forward failed: {(int)response.StatusCode} {response.ReasonPhrase}: {raw}"), false);
+                }
+
+                ConsoleLog.Debug($"Forwarded Lite to {ip}:{port}, response={raw}");
+
+                var envelope = JsonUtility.FromJson<HttpResponseEnvelope>(raw);
+                if (envelope == null || string.IsNullOrEmpty(envelope.dataJson))
+                {
+                    return (raw, true);
+                }
+                var data = JsonUtility.FromJson<LiteExecuteResponseData>(envelope.dataJson);
+                if (data == null)
+                {
+                    return (envelope.summary ?? raw, true);
+                }
+                if (data.needsResync)
+                {
+                    // Surface the resync request so the REPL client can prompt
+                    // the user to :reset. Auto-resync (editor PrepareResync +
+                    // player IngestResync) is a P1 follow-up — current player
+                    // ProcessLiteExecute does not yet ingest resync frames.
+                    var code = string.IsNullOrEmpty(data.errorCode) ? "E_TYPEREG_EPOCH_MISMATCH" : data.errorCode;
+                    return ($"[{code}] session needs reset (player epoch={data.serverEpoch}): {data.result}", true);
+                }
+                if (!string.IsNullOrEmpty(data.errorCode))
+                {
+                    return ($"[{data.errorCode}] {data.result}", true);
+                }
+                return (data.result ?? "", true);
+            }
+            catch (Exception ex)
+            {
+                return (ConsoleLog.Format($"Forward failed: {ex}"), false);
+            }
         }
 
         private static async Task<string> ForwardReset(string ip, string port, string uuid)
@@ -1375,17 +1525,22 @@ namespace Zh1Zh1.CSharpConsole.Service
             {
                 var req = JsonUtility.FromJson<ExecuteREPLRequest>(message);
                 uuid = req.uuid;
-                string result;
                 if (req.reset)
                 {
                     s_ReplServiceRegistry.RemoveExecutor(uuid);
-                    result = "Reset Success!";
+                    s_ReplServiceRegistry.RemoveLiteExecutor(uuid);
+                    response = s_EnvelopeFactory.CreateTextEnvelope("execute", "Reset Success!", uuid);
+                }
+                else if (!string.IsNullOrEmpty(req.bodyBinary))
+                {
+                    response = await ProcessLiteExecute(req, uuid);
                 }
                 else
                 {
                     var dllBase64 = req.dllBase64 ?? "";
                     var className = req.className ?? "";
                     ConsoleLog.Debug($"Execute request: dllLength={dllBase64.Length}, class={className}, session={uuid}, reset={req.reset}");
+                    string result;
                     if (string.IsNullOrEmpty(dllBase64))
                     {
                         result = "No dll data";
@@ -1400,9 +1555,8 @@ namespace Zh1Zh1.CSharpConsole.Service
                             return execResult?.ToString() ?? "";
                         });
                     }
+                    response = s_EnvelopeFactory.CreateTextEnvelope("execute", result, uuid);
                 }
-
-                response = s_EnvelopeFactory.CreateTextEnvelope("execute", result, uuid);
             }
             catch (Exception e)
             {
@@ -1410,6 +1564,62 @@ namespace Zh1Zh1.CSharpConsole.Service
             }
 
             await WriteEnvelopeResponseAsync(context, response, "Execute");
+        }
+
+        private static async Task<HttpResponseEnvelope> ProcessLiteExecute(ExecuteREPLRequest req, string uuid)
+        {
+            try
+            {
+                byte[] bodyBytes;
+                try { bodyBytes = Convert.FromBase64String(req.bodyBinary); }
+                catch (FormatException ex)
+                {
+                    return BuildLiteErrorEnvelope(uuid, "E_LITE_WIRE_BAD_BASE64",
+                        $"bodyBinary is not valid base64: {ex.Message}", serverEpoch: 0);
+                }
+
+                ConsoleLog.Debug($"Execute (Lite): bodyBytes={bodyBytes.Length}, typeRegDelta={req.typeReg?.Length ?? 0}, epoch={req.registryEpoch}, session={uuid}");
+
+                var outcome = await MainThreadRequestRunner.RunOnMainThreadAsync(async () =>
+                {
+                    var executor = s_ReplServiceRegistry.FetchLiteExecutor(uuid, () => new LiteREPLExecutor());
+                    return await executor.ExecuteAsync(bodyBytes, req.typeReg, req.registryEpoch);
+                });
+
+                var data = new LiteExecuteResponseData
+                {
+                    result = outcome.Result,
+                    errorCode = outcome.ErrorCode,
+                    needsResync = outcome.NeedsResync,
+                    serverEpoch = outcome.ServerEpoch
+                };
+                var ok = string.IsNullOrEmpty(outcome.ErrorCode);
+                var resultType = ok ? "ok" : (outcome.NeedsResync ? "needs_resync" : "runtime_error");
+                var summary = ok ? outcome.Result : outcome.ErrorCode;
+                return s_EnvelopeFactory.CreateEnvelope(ok, "execute", resultType, summary, uuid, JsonUtility.ToJson(data));
+            }
+            catch (Exception ex)
+            {
+                // Catch all dispatcher / executor / async-machinery exceptions and
+                // surface them as a Lite-shaped error envelope, so clients can
+                // always parse dataJson as LiteExecuteResponseData on the Lite
+                // path (rather than getting a TextResponseData fallback).
+                ConsoleLog.Warning($"Lite execute dispatcher exception: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
+                return BuildLiteErrorEnvelope(uuid, "E_LITE_DISPATCH_ERROR",
+                    $"dispatch error: {ex.GetType().Name}: {ex.Message}", serverEpoch: 0);
+            }
+        }
+
+        private static HttpResponseEnvelope BuildLiteErrorEnvelope(string uuid, string errorCode, string message, int serverEpoch)
+        {
+            var data = new LiteExecuteResponseData
+            {
+                errorCode = errorCode,
+                result = message,
+                serverEpoch = serverEpoch
+            };
+            return s_EnvelopeFactory.CreateEnvelope(false, "execute", "runtime_error",
+                errorCode, uuid, JsonUtility.ToJson(data));
         }
     }
 }

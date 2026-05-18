@@ -74,6 +74,10 @@ session = None
 _pending_quit_confirmation = False
 _command_catalog_state = {"command_catalog_cache": None}
 cmd_id = ""
+# Cached player-executor mode from /health (populated once at REPL startup).
+# Empty when isEditor=true (mode distinction does not apply) or when the probe
+# fails — banner/footer treat empty as "do not display the executor segment".
+executor_mode = ""
 history = FileHistory(config._log_file_path)
 MAX_INPUT_VISIBLE_LINES = 8
 TRANSCRIPT_WHEEL_SCROLL_LINES = 3
@@ -302,7 +306,30 @@ def _build_terminal_title():
 
 
 def _build_startup_banner():
-    return session_ui.build_startup_banner(config, cmd_id)
+    return session_ui.build_startup_banner(config, cmd_id, executor_mode)
+
+
+def _refresh_executor_mode():
+    # One-shot /health probe to capture the player-side executor mode. Stored
+    # in the module-level cache so the banner and footer can render it without
+    # repeated HTTP round-trips. Stays empty (no banner segment) when isEditor
+    # is true or when the probe fails.
+    #
+    # Uses request_player_health (not request_health) because in runtime mode
+    # the regular health probe targets the compile/editor URL and would always
+    # see isEditor=true. playerExecutorMode is a player-side signal.
+    global executor_mode
+    try:
+        h = client.request_player_health()
+    except Exception:
+        return
+    if not h.get("ok"):
+        return
+    data = h.get("data") or {}
+    if data.get("isEditor"):
+        executor_mode = ""
+        return
+    executor_mode = str(data.get("playerExecutorMode") or "")
 
 
 def _is_search_active():
@@ -388,7 +415,7 @@ class ReplApplicationShell:
             focusable=False,
         )
         self.footer_line_2_left = FormattedTextControl(lambda: session_ui.build_footer_common_shortcuts_text(), focusable=False)
-        self.footer_line_2_right = FormattedTextControl(lambda: session_ui.build_footer_session_text(config, cmd_id), focusable=False)
+        self.footer_line_2_right = FormattedTextControl(lambda: session_ui.build_footer_session_text(config, cmd_id, executor_mode), focusable=False)
 
         startup_pending = Condition(lambda: self._startup_pending)
         warmup_panel = HSplit(
@@ -711,13 +738,26 @@ def try_process_command_expression(message):
     )
 
 
+def _execute_runtime_request_with_mode(message, session_id, reset=False, invalidate_completion=None):
+    # Thread the cached /health.playerExecutorMode into the runtime request so
+    # the editor /compile handler can branch to the Lite path when the player
+    # reports "lite". Lookup is intentionally late-bound on the module global —
+    # _refresh_executor_mode runs in start_repl before any execute_repl_snippet
+    # call, so executor_mode is populated by the time this fires.
+    return client.execute_runtime_request(
+        message, session_id, reset=reset,
+        invalidate_completion=invalidate_completion,
+        executor_mode=executor_mode,
+    )
+
+
 def execute_repl_snippet(message, reset=False):
     return _execute_repl_snippet_impl(
         message,
         reset,
         config.runtime_mode,
         cmd_id,
-        client.execute_runtime_request,
+        _execute_runtime_request_with_mode,
         client.execute_editor_request,
         append_result_transcript_entry,
         lambda result: output.build_result_entry(result, _extract_text_from_data),
@@ -763,8 +803,9 @@ def _kickoff_startup_snippet():
     def _worker():
         try:
             if runtime_mode:
-                result = client.execute_runtime_request(
-                    snippet, session_id, invalidate_completion=roslyn_completer.invalidate
+                result = _execute_runtime_request_with_mode(
+                    snippet, session_id,
+                    invalidate_completion=roslyn_completer.invalidate,
                 )
             else:
                 result = client.execute_editor_request(
@@ -802,6 +843,7 @@ def start_repl():
     shell = ensure_prompt_session()
     shell.transcript_state.clear()
     cmd_id = str(uuid.uuid4())
+    _refresh_executor_mode()
     shell.app.invalidate()
     return _start_repl_impl(
         ensure_prompt_session,

@@ -57,7 +57,7 @@ def execute_editor_request(post_json, parse_text_http_response, get_default_defi
         return make_result(False, "execute", "system_error", 3, f"Error post: {e}", session_id, "editor", run_id, (time.time() - start) * 1000)
 
 
-def execute_runtime_request(post_json, parse_text_http_response, get_default_define_line, get_default_using_prefix, runtime_ip, runtime_port, runtime_dll_path, message, session_id, reset=False, invalidate_completion=None):
+def execute_runtime_request(post_json, parse_text_http_response, get_default_define_line, get_default_using_prefix, runtime_ip, runtime_port, runtime_dll_path, message, session_id, reset=False, invalidate_completion=None, executor_mode=""):
     start = time.time()
     run_id = new_run_id()
     payload = {
@@ -69,6 +69,7 @@ def execute_runtime_request(post_json, parse_text_http_response, get_default_def
         "targetIP": runtime_ip,
         "targetPort": runtime_port,
         "runtimeDllPath": runtime_dll_path,
+        "executorMode": executor_mode,
     }
     try:
         raw = post_json("compile", payload, TIMEOUT_EXEC_RUNTIME)

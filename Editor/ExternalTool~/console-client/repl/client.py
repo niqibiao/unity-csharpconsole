@@ -127,8 +127,8 @@ def execute_editor_request(message, session_id, reset=False, invalidate_completi
     return client_base.execute_editor_request(post_json, response_parser.parse_text_http_response, get_default_define_line, get_default_using_prefix, message, session_id, reset=reset, invalidate_completion=invalidate_completion)
 
 
-def execute_runtime_request(message, session_id, reset=False, invalidate_completion=None):
-    return client_base.execute_runtime_request(post_json, response_parser.parse_text_http_response, get_default_define_line, get_default_using_prefix, config.runtime_ip, config.runtime_port, config.runtime_dll_path, message, session_id, reset=reset, invalidate_completion=invalidate_completion)
+def execute_runtime_request(message, session_id, reset=False, invalidate_completion=None, executor_mode=""):
+    return client_base.execute_runtime_request(post_json, response_parser.parse_text_http_response, get_default_define_line, get_default_using_prefix, config.runtime_ip, config.runtime_port, config.runtime_dll_path, message, session_id, reset=reset, invalidate_completion=invalidate_completion, executor_mode=executor_mode)
 
 
 def compile_editor_request(message, session_id):
@@ -160,6 +160,21 @@ def request_command(command_namespace, action, session_id, args):
 
 def request_health():
     return client_base.request_health(post_json, response_parser.parse_health_http_response, config.current_mode_name)
+
+
+def post_json_to_player(endpoint, payload, timeout_seconds):
+    return transport_http.post_json(config.current_execute_base_url(), endpoint, payload, timeout_seconds)
+
+
+def request_player_health():
+    # In runtime mode the regular request_health() targets the compile/editor
+    # URL because /command, /completion etc. all live there. Player-side
+    # signals (playerExecutorMode in particular) require probing the runtime
+    # host directly. Editor mode has no player so we fall through to the
+    # regular probe (which hits the editor self).
+    if not config.runtime_mode:
+        return request_health()
+    return client_base.request_health(post_json_to_player, response_parser.parse_health_http_response, config.current_mode_name)
 
 
 def request_refresh():

@@ -16,9 +16,9 @@ def build_terminal_title(config_module):
     return f"c# REPL/{target_ip}:{target_port}"
 
 
-def build_startup_banner(config_module, cmd_id):
+def build_startup_banner(config_module, cmd_id, executor_mode=""):
     work_mode, target_ip, target_port = get_session_target(config_module)
-    return [
+    parts = [
         ("class:banner.label", "[session] "),
         ("class:banner.key", "workMode="),
         ("class:banner.value", work_mode),
@@ -29,6 +29,13 @@ def build_startup_banner(config_module, cmd_id):
         ("class:banner.key", "cmdId="),
         ("class:banner.value", str(cmd_id)),
     ]
+    if executor_mode:
+        parts += [
+            ("", "  "),
+            ("class:banner.key", "executor="),
+            ("class:banner.value", executor_mode),
+        ]
+    return parts
 
 
 def _format_short_cmd_id(cmd_id):
@@ -38,9 +45,9 @@ def _format_short_cmd_id(cmd_id):
     return value[:8]
 
 
-def build_footer_session_text(config_module, cmd_id):
+def build_footer_session_text(config_module, cmd_id, executor_mode=""):
     work_mode, target_ip, target_port = get_session_target(config_module)
-    return [
+    parts = [
         ("class:footer.session.label", "[session] "),
         ("class:footer.session.key", "workMode="),
         ("class:footer.session.value", work_mode),
@@ -51,6 +58,13 @@ def build_footer_session_text(config_module, cmd_id):
         ("class:footer.session.key", "cmdId="),
         ("class:footer.session.value", _format_short_cmd_id(cmd_id)),
     ]
+    if executor_mode:
+        parts += [
+            ("", "  "),
+            ("class:footer.session.key", "executor="),
+            ("class:footer.session.value", executor_mode),
+        ]
+    return parts
 
 
 def build_footer_common_shortcuts_text():

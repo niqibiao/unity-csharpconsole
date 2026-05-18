@@ -1,5 +1,6 @@
 using Zh1Zh1.CSharpConsole.Editor.Compiler;
 using Zh1Zh1.CSharpConsole.Executor;
+using Zh1Zh1.CSharpConsole.Lite;
 using Zh1Zh1.CSharpConsole.Service;
 using UnityEditor;
 
@@ -19,7 +20,11 @@ namespace Zh1Zh1.CSharpConsole.Editor
 
             ConsoleHttpService.Shutdown();
             var defaultDefines = EditorREPLCompiler.ResolveDefaultDefines();
-            ConsoleHttpService.InitializeForEditor(() => new EditorREPLCompiler(defaultDefines), () => new REPLExecutor(), runtimeDllPath => new RuntimeREPLCompiler(runtimeDllPath));
+            ConsoleHttpService.InitializeForEditor(
+                () => new EditorREPLCompiler(defaultDefines),
+                () => new REPLExecutor(),
+                runtimeDllPath => new RuntimeREPLCompiler(runtimeDllPath),
+                () => new LiteREPLCompiler());
             ConsoleLog.Info("CSharpConsole initialize finished");
         }
 

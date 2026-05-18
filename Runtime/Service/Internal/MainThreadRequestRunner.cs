@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Zh1Zh1.CSharpConsole.Service;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
@@ -42,17 +43,70 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
 
         public static void InitializeRuntime()
         {
+            // Always wire the queue routing first so RuntimePost can accept
+            // submissions even before the driver GameObject exists. Requests
+            // arriving in that window will sit in s_RuntimePendingActions and
+            // drain once Update() starts ticking.
+            SetPlatformPostToMainThread(RuntimePost);
+
             lock (s_RuntimeLock)
             {
-                if (s_RuntimeDriver == null)
+                if (s_RuntimeDriver != null)
                 {
-                    var go = new GameObject("[CSharpConsole] MainThreadRequestRunner");
-                    UnityEngine.Object.DontDestroyOnLoad(go);
-                    s_RuntimeDriver = go.AddComponent<MainThreadRequestRunnerDriver>();
+                    return;
+                }
+
+                if (HasLoadedScene())
+                {
+                    CreateRuntimeDriver();
+                }
+                else
+                {
+                    // Caller invoked InitializeForRuntime before any scene is
+                    // loaded (e.g. from [RuntimeInitializeOnLoadMethod(
+                    // RuntimeInitializeLoadType.AfterAssembliesLoaded)]). At
+                    // this point DontDestroyOnLoad has no source scene to move
+                    // the new GameObject from, so the driver MonoBehaviour
+                    // would be orphaned and its Update() would never tick.
+                    // Defer creation until the first scene finishes loading.
+                    // `-=` before `+=` keeps subscription idempotent if
+                    // InitializeForRuntime is called twice before any scene loads.
+                    SceneManager.sceneLoaded -= OnFirstSceneLoaded;
+                    SceneManager.sceneLoaded += OnFirstSceneLoaded;
                 }
             }
+        }
 
-            SetPlatformPostToMainThread(RuntimePost);
+        private static bool HasLoadedScene()
+        {
+            var count = SceneManager.sceneCount;
+            for (int i = 0; i < count; i++)
+            {
+                if (SceneManager.GetSceneAt(i).isLoaded)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static void OnFirstSceneLoaded(Scene scene, LoadSceneMode mode)
+        {
+            lock (s_RuntimeLock)
+            {
+                SceneManager.sceneLoaded -= OnFirstSceneLoaded;
+                if (s_RuntimeDriver == null)
+                {
+                    CreateRuntimeDriver();
+                }
+            }
+        }
+
+        private static void CreateRuntimeDriver()
+        {
+            var go = new GameObject("[CSharpConsole] MainThreadRequestRunner");
+            UnityEngine.Object.DontDestroyOnLoad(go);
+            s_RuntimeDriver = go.AddComponent<MainThreadRequestRunnerDriver>();
         }
 
         public static void InitializeEditor()

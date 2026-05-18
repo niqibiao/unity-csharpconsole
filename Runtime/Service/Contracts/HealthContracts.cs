@@ -62,6 +62,21 @@ namespace Zh1Zh1.CSharpConsole.Service
         public bool isCompiling;
         public bool compileFailed;
         public RefreshOperationState operation = new();
+
+#if !UNITY_EDITOR
+        // Player-only field. Present in player /health responses, absent in editor
+        // responses entirely (editor flow uses Mono Assembly.Load and the mode
+        // distinction does not apply — sending an empty string would force clients
+        // to write defensive "ignore when isEditor=true" checks).
+        //
+        // Values:
+        //   "hybridCLR" — HybridCLR is integrated; player executes via Assembly.Load
+        //   ""          — player has no working executor right now (Lite executor
+        //                 has not been implemented yet; see Phase B in Docs~/
+        //                 ExpressionInterpreterFeasibility_zh.md). Future value
+        //                 "lite" is reserved for when LiteREPLExecutor ships.
+        public string playerExecutorMode = "";
+#endif
     }
 
     [Serializable]

@@ -23,6 +23,11 @@ namespace Zh1Zh1.CSharpConsole.Service
         public string targetPort = "";
         public string runtimeDllPath = "";
         public bool reset;
+        // "lite" routes the submission through LiteREPLCompiler (Roslyn ->
+        // Expression -> binary body). Anything else (including the empty
+        // legacy default) stays on the HybridCLR path. The client is expected
+        // to populate this based on /health.playerExecutorMode.
+        public string executorMode = "";
     }
 
     [Serializable]

@@ -1,0 +1,47 @@
+<!--
+Lite-mode managed-stripping protection.
+
+Background: in Unity 2022.3 IL2CPP builds (especially Release with managed
+stripping = High), the linker walks the IL reference graph and drops any
+type that does not appear reachable. The Lite-mode REPL is at risk in three
+distinct ways:
+
+  1. System.Linq.Expressions.Interpreter — internal to the BCL and only
+     activated at runtime via LambdaExpression.Compile(preferInterpretation:
+     true). Static analysis sees Compile() but does not necessarily reach
+     every Interpreter instruction subclass. If even one instruction class is
+     stripped, the interpreter falls back to LightCompiler then fails on AOT
+     with "Operation is not supported on this platform."
+
+  2. The codec primitives (BinaryReader / BinaryWriter / MemoryStream /
+     UTF8Encoding) are directly referenced from LiteWireReader/Writer so
+     they should survive. Preserving them explicitly is a belt-and-suspenders
+     guard against unusual linker decisions on the Player.
+
+  3. The reflection types resolved at runtime via Type.GetType(AQN) are
+     USER types. Those must be preserved by the user's own link.xml or
+     [UnityEngine.Scripting.Preserve] / [JsonSerializable] usage — this
+     file does not (and cannot) enumerate them.
+
+Reference: Docs~/ExpressionInterpreterFeasibility_zh.md §3.1 task 7,
+§7.4 IL2CPP stripping. Task 7 also requires an actual IL2CPP build run
+against spike-equivalent cases (deferred to hands-on player testing).
+-->
+<linker>
+  <assembly fullname="System.Linq.Expressions" preserve="all" />
+  <assembly fullname="System.Core" preserve="all" />
+  <assembly fullname="mscorlib">
+    <type fullname="System.IO.BinaryReader" preserve="all" />
+    <type fullname="System.IO.BinaryWriter" preserve="all" />
+    <type fullname="System.IO.MemoryStream" preserve="all" />
+    <type fullname="System.Text.UTF8Encoding" preserve="all" />
+    <type fullname="System.Text.Encoding" preserve="all" />
+  </assembly>
+  <assembly fullname="netstandard">
+    <type fullname="System.IO.BinaryReader" preserve="all" />
+    <type fullname="System.IO.BinaryWriter" preserve="all" />
+    <type fullname="System.IO.MemoryStream" preserve="all" />
+    <type fullname="System.Text.UTF8Encoding" preserve="all" />
+    <type fullname="System.Text.Encoding" preserve="all" />
+  </assembly>
+</linker>
