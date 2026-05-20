@@ -156,6 +156,7 @@ REPL service 在监听线程接收请求，通过 `MainThreadRequestRunner` 把 
 | P1-1 Translator 三类 case · Editor in-process spike | ✅ 15/15 PASS direct + wire-roundtrip（`Editor/Spike/LiteTranslatorP1Spike.cs`） |
 | P1-1 Translator 三类 case · Win Standalone IL2CPP Dev Player E2E | ✅ 15/15 PASS 通过 Editor→HTTP→Player 完整链路（2026-05-20；Player 二进制无需重建——新 translator 输出全部复用既有 NodeKind/UnaryOp/BinaryOp 值，向后兼容旧 reader） |
 | VisitExpression targetType 中心化收口 · 8 个 type-enforcement gate case（ctor 多参/混合、List<T> init、Dict 复合 init、explicit `new T[]{...}`、params varargs、方法 overload 选择） | ✅ 8/8 PASS direct + wire（spike D 类）；ad-hoc Player IL2CPP 包括 `new Vector2(1,0)` / `new Vector3(1,2.5f,3)` 全过 |
+| Win Standalone IL2CPP Dev Build · ManagedStrippingLevel=**High** · 全 23 case (P1-1 15 + D 8) | ✅ 23/23 PASS（2026-05-20；`Build/LiteOnly_StripHigh/`，GameAssembly.dll 44.8MB vs Minimal 50.1MB ~11% 压缩）。证明 `Runtime/link.xml` 覆盖足够：`string.Concat` 各 overload、enum 反射、`Expression.NewArrayInit` element handling、Unity API surface（Vector2/3 ctor、List/Dict 泛型方法）在 High stripping 下全部存活。 |
 | Android / iOS IL2CPP | ⏳ 待验 |
 
 ## 6. 已知 P1 后续
@@ -164,7 +165,7 @@ REPL service 在监听线程接收请求，通过 `MainThreadRequestRunner` 把 
 - ~~`VisitArrayCreation` 显式 `new double[]{1,2,3}` 同 numeric-promotion gap、`new Vector2(1,0)` ctor int→float 不通——同一类 bug~~ — **已完成**：commit `af470d2` 把 `VisitExpression` 改成 raw + targetType 中心化包装层，**所有 `VisitExpression(e, T)` 调用现在保证返回值 `.Type == T`**。spike D 类 8 个 case 回归覆盖，包含 ctor 多参、collection init、explicit array、params、overload 选择。VisitImplicitArrayCreation 与 BindArguments 等的 per-callsite Convert/EnsureType 思路被这次改动取代。
 - **完整自动 resync**：当前 player 不支持 ingest resync frame；client 看到 `needsResync` 后只能手动 `:reset`
 - **Android/iOS IL2CPP 真机扩验**
-- **Release Build（Managed Stripping High）下 link.xml 验证**
+- ~~**Release Build（Managed Stripping High）下 link.xml 验证**~~ — **已完成**：2026-05-20 在 LiteOnly Win Standalone IL2CPP Dev Build (Stripping=High) 上跑全 23 case PASS（见 §5）。**注**：纯 Release Build（不带 `DEVELOPMENT_BUILD`）下 `Runtime/Zh1Zh1.CSharpConsole.Runtime.asmdef` 整个被 asmdef 条件编译排除，HTTP service 根本不进 Player——这是按设计（CLAUDE.md 项目说明），不需要验。所以"Release Build"上限就是 Dev Build + High stripping。
 - **异常诊断 probe**：NRE stack trace / line number 跨 wire 序列化定位
 - **性能基线**：BCL interpreter vs Editor Mono 同负载循环
 
