@@ -16,6 +16,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq.Expressions;
 using UnityEditor;
 using UnityEngine;
 using Zh1Zh1.CSharpConsole.Lite;
@@ -69,45 +70,82 @@ namespace Zh1Zh1.CSharpConsole.EditorSpike
             };
 
             int pass = 0, fail = 0;
-            var failed = new List<string>();
 
             foreach (var c in cases)
             {
-                try
+                // Each case runs two paths:
+                //   direct  — translator -> lambda.Compile(preferInterpretation:true) -> invoke
+                //   wire    — translator -> Writer -> bytes -> Reader -> Compile -> invoke
+                // The wire path exercises LiteWireWriter/Reader codec roundtrip.
+                // The writer and reader share a SessionTypeRegistry instance here:
+                // cross-registry consistency is covered by B-3..B-9, this spike
+                // only needs to prove the codec preserves what the translator
+                // produced. Both paths must succeed for the case to PASS.
+                var directResult = TryRun(c.Code, useWire: false, out var directErr);
+                var wireResult   = TryRun(c.Code, useWire: true,  out var wireErr);
+
+                bool directOk = directErr == null && Equals(directResult, c.Expected);
+                bool wireOk   = wireErr   == null && Equals(wireResult,   c.Expected);
+
+                if (directOk && wireOk)
                 {
-                    var compiler = new LiteREPLCompiler();
-                    var del = compiler.Compile(c.Code);
-                    var actual = del.DynamicInvoke();
-                    if (Equals(actual, c.Expected))
-                    {
-                        pass++;
-                        Debug.Log($"[Spike P1 PASS] {c.Label}  =>  {Repr(actual)}");
-                    }
-                    else
-                    {
-                        fail++;
-                        var msg = $"[Spike P1 FAIL] {c.Label}  expected={Repr(c.Expected)} actual={Repr(actual)}";
-                        Debug.LogError(msg);
-                        failed.Add(msg);
-                    }
+                    pass++;
+                    Debug.Log($"[Spike P1 PASS] {c.Label}  direct={Repr(directResult)} wire={Repr(wireResult)}");
                 }
-                catch (Exception ex)
+                else
                 {
                     fail++;
-                    // Unwrap TargetInvocationException so the real cause is visible
-                    // in the Console — DynamicInvoke wraps everything.
-                    var inner = ex is System.Reflection.TargetInvocationException tie && tie.InnerException != null
-                        ? tie.InnerException
-                        : ex;
-                    var msg = $"[Spike P1 FAIL] {c.Label}  threw: {inner.GetType().Name}: {inner.Message}";
-                    Debug.LogError(msg);
-                    failed.Add(msg);
+                    var directPart = directErr != null
+                        ? $"direct THREW {directErr.GetType().Name}: {directErr.Message}"
+                        : $"direct={Repr(directResult)}{(directOk ? "" : " (mismatch)")}";
+                    var wirePart = wireErr != null
+                        ? $"wire THREW {wireErr.GetType().Name}: {wireErr.Message}"
+                        : $"wire={Repr(wireResult)}{(wireOk ? "" : " (mismatch)")}";
+                    Debug.LogError($"[Spike P1 FAIL] {c.Label}  expected={Repr(c.Expected)}  {directPart}  {wirePart}");
                 }
             }
 
             var summary = $"Spike Translator P1: {pass}/{pass + fail} PASS ({fail} fail)";
             if (fail == 0) Debug.Log(summary);
             else Debug.LogError(summary);
+        }
+
+        // Runs `code` through translator + (optionally) wire roundtrip and
+        // returns the invocation result. On exception, captures it in `error`
+        // (unwrapping TargetInvocationException so the real cause is visible)
+        // and returns null — caller checks `error` first.
+        private static object TryRun(string code, bool useWire, out Exception error)
+        {
+            error = null;
+            try
+            {
+                var compiler = new LiteREPLCompiler();
+                var prepared = compiler.PrepareSubmission(code);
+
+                LambdaExpression lambda;
+                if (useWire)
+                {
+                    var reg = new SessionTypeRegistry();
+                    var writer = new LiteWireWriter(reg, compiler.Slots);
+                    var bytes = writer.WriteRoot(prepared.Lambda);
+                    var reader = new LiteWireReader(reg, compiler.Slots);
+                    lambda = (LambdaExpression)reader.ReadRoot(bytes);
+                }
+                else
+                {
+                    lambda = prepared.Lambda;
+                }
+
+                var del = lambda.Compile(preferInterpretation: true);
+                return del.DynamicInvoke();
+            }
+            catch (Exception ex)
+            {
+                error = ex is System.Reflection.TargetInvocationException tie && tie.InnerException != null
+                    ? tie.InnerException
+                    : ex;
+                return null;
+            }
         }
 
         private static string Repr(object v)
