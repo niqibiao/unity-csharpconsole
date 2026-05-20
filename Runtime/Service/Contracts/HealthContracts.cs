@@ -71,10 +71,10 @@ namespace Zh1Zh1.CSharpConsole.Service
         //
         // Values:
         //   "hybridCLR" — HybridCLR is integrated; player executes via Assembly.Load
-        //   ""          — player has no working executor right now (Lite executor
-        //                 has not been implemented yet; see Phase B in Docs~/
-        //                 ExpressionInterpreterFeasibility_zh.md). Future value
-        //                 "lite" is reserved for when LiteREPLExecutor ships.
+        //   "lite"      — no HybridCLR; player executes via the Lite Roslyn ->
+        //                 Expression interpreter path. LiteREPLExecutor ships with
+        //                 the package, so a player without HybridCLR is always
+        //                 Lite-capable.
         public string playerExecutorMode = "";
 #endif
     }

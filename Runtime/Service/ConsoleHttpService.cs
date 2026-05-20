@@ -528,13 +528,9 @@ namespace Zh1Zh1.CSharpConsole.Service
         // Player-only: detected once at static init by walking AppDomain for the
         // HybridCLR runtime API. Cached to avoid per-/health reflection cost.
         // Returns "hybridCLR" when HybridCLR's `HybridCLR.RuntimeApi` is reachable;
-        // empty string otherwise — we deliberately do NOT claim "lite" yet, because
-        // the Lite executor (Roslyn → Expression interpreter path) is still under
-        // research (see Phase B in Docs~/ExpressionInterpreter*) and is NOT
-        // registered as a runtime executor. Returning "lite" before the executor
-        // ships would be a false capability signal — the banner could read
-        // `executor=lite` while /execute still tries Assembly.Load and fails.
-        // Future commit re-enables "lite" once LiteREPLExecutor is in place.
+        // otherwise "lite" — LiteREPLExecutor (the Roslyn -> Expression interpreter
+        // path) ships with the package, so a player without HybridCLR is always
+        // Lite-capable and /execute routes to the Lite executor.
         private static readonly string s_PlayerExecutorMode = DetectPlayerExecutorMode();
 
         private static string DetectPlayerExecutorMode()
@@ -1297,15 +1293,16 @@ namespace Zh1Zh1.CSharpConsole.Service
         private static async Task<string> CompileAndForwardLiteAsync(string uuid, string code, string defaultUsing, string ip, string port)
         {
             LiteEditorSession session;
+            IPreparedLiteSubmission prepared;
             byte[] bodyBytes;
             TypeRegEntryDto[] deltaDtos;
             int epoch;
             try
             {
                 session = s_ReplServiceRegistry.FetchLiteSession(uuid, s_LiteCompilerGenerator);
-                var lambda = session.Compiler.CompileToLambda(code, defaultUsing);
+                prepared = session.Compiler.PrepareSubmission(code, defaultUsing);
                 var writer = new LiteWireWriter(session.Registry, session.Compiler.Slots);
-                bodyBytes = writer.WriteRoot(lambda);
+                bodyBytes = writer.WriteRoot(prepared.Lambda);
                 var delta = session.Registry.FlushDelta();
                 deltaDtos = new TypeRegEntryDto[delta.Count];
                 for (int i = 0; i < delta.Count; i++)
@@ -1332,23 +1329,40 @@ namespace Zh1Zh1.CSharpConsole.Service
                 reset = false
             };
 
-            var (text, transportOk) = await PostLiteToPlayerAsync(ip, port, request);
-            if (!transportOk)
+            var (text, transportOk, executeOk) = await PostLiteToPlayerAsync(ip, port, request);
+            if (transportOk && executeOk)
+            {
+                // Player confirmed execution — only now promote the submission's
+                // session-slot types and advance the editor Roslyn chain, so a
+                // player-side failure can never leave editor session state ahead
+                // of the player slot dictionary.
+                prepared.Commit();
+            }
+            else if (!transportOk)
             {
                 // Delta flushed locally but the player never received it. Bump
                 // epoch so the next submission starts from a clean slot — full
                 // auto-resync (player IngestResync + editor PrepareResync retry)
                 // is a P1 follow-up; v1 surfaces the failure and lets the
-                // client :reset.
+                // client :reset. The submission stays uncommitted.
                 session.Registry.BumpEpoch();
             }
+            // transportOk && !executeOk (player runtime error / needsResync /
+            // unparseable response): the submission stays uncommitted and the
+            // registry epoch is untouched — the player ingests typeReg before
+            // running the body, so both registries stay in sync regardless.
             return text;
         }
 
         // Lite-aware version of PostToPlayer that decodes LiteExecuteResponseData
         // out of the envelope instead of falling back to TextResponseData (which
         // silently drops needsResync / errorCode / serverEpoch).
-        private static async Task<(string text, bool transportOk)> PostLiteToPlayerAsync(string ip, string port, ExecuteREPLRequest request)
+        //
+        // executeOk is true only when the player ran the body to completion with
+        // no error — the caller commits the editor-side submission only then.
+        // A runtime error, a needsResync, or an unparseable response all yield
+        // executeOk=false so the submission stays uncommitted.
+        private static async Task<(string text, bool transportOk, bool executeOk)> PostLiteToPlayerAsync(string ip, string port, ExecuteREPLRequest request)
         {
             try
             {
@@ -1361,7 +1375,7 @@ namespace Zh1Zh1.CSharpConsole.Service
                 var raw = await response.Content.ReadAsStringAsync();
                 if (!response.IsSuccessStatusCode)
                 {
-                    return (ConsoleLog.Format($"Forward failed: {(int)response.StatusCode} {response.ReasonPhrase}: {raw}"), false);
+                    return (ConsoleLog.Format($"Forward failed: {(int)response.StatusCode} {response.ReasonPhrase}: {raw}"), false, false);
                 }
 
                 ConsoleLog.Debug($"Forwarded Lite to {ip}:{port}, response={raw}");
@@ -1369,12 +1383,14 @@ namespace Zh1Zh1.CSharpConsole.Service
                 var envelope = JsonUtility.FromJson<HttpResponseEnvelope>(raw);
                 if (envelope == null || string.IsNullOrEmpty(envelope.dataJson))
                 {
-                    return (raw, true);
+                    // Unparseable envelope — cannot confirm the player executed
+                    // the body, so executeOk=false keeps the submission uncommitted.
+                    return (raw, true, false);
                 }
                 var data = JsonUtility.FromJson<LiteExecuteResponseData>(envelope.dataJson);
                 if (data == null)
                 {
-                    return (envelope.summary ?? raw, true);
+                    return (envelope.summary ?? raw, true, false);
                 }
                 if (data.needsResync)
                 {
@@ -1383,17 +1399,17 @@ namespace Zh1Zh1.CSharpConsole.Service
                     // player IngestResync) is a P1 follow-up — current player
                     // ProcessLiteExecute does not yet ingest resync frames.
                     var code = string.IsNullOrEmpty(data.errorCode) ? "E_TYPEREG_EPOCH_MISMATCH" : data.errorCode;
-                    return ($"[{code}] session needs reset (player epoch={data.serverEpoch}): {data.result}", true);
+                    return ($"[{code}] session needs reset (player epoch={data.serverEpoch}): {data.result}", true, false);
                 }
                 if (!string.IsNullOrEmpty(data.errorCode))
                 {
-                    return ($"[{data.errorCode}] {data.result}", true);
+                    return ($"[{data.errorCode}] {data.result}", true, false);
                 }
-                return (data.result ?? "", true);
+                return (data.result ?? "", true, true);
             }
             catch (Exception ex)
             {
-                return (ConsoleLog.Format($"Forward failed: {ex}"), false);
+                return (ConsoleLog.Format($"Forward failed: {ex}"), false, false);
             }
         }
 

@@ -46,8 +46,22 @@ namespace Zh1Zh1.CSharpConsole.Lite
         }
 
         // Returns the BCL LambdaExpression before .Compile() so DTO serializers
-        // can inspect the tree. Commits translator state on success.
+        // can inspect the tree. Commits translator state immediately — for the
+        // in-process editor-target path where compile and execute are atomic.
+        // The cross-process player path uses PrepareSubmission so it can defer
+        // Commit() until the player confirms execution.
         public Expression<Func<object>> CompileToLambda(string code, string defaultUsing = "")
+        {
+            var prepared = PrepareSubmission(code, defaultUsing);
+            prepared.Commit();
+            return prepared.Lambda;
+        }
+
+        // Builds the submission lambda WITHOUT committing session state — see
+        // IPreparedLiteSubmission. The caller serializes + forwards to the player
+        // and calls Commit() on the returned handle only after the player
+        // confirms successful execution.
+        public IPreparedLiteSubmission PrepareSubmission(string code, string defaultUsing = "")
         {
             var refs = m_References ??= BuildReferences();
             var prefix = s_DefaultUsings + (string.IsNullOrEmpty(defaultUsing) ? "" : (defaultUsing.EndsWith("\n") ? defaultUsing : defaultUsing + "\n"));
@@ -150,11 +164,10 @@ namespace Zh1Zh1.CSharpConsole.Lite
 
             var lambda = Expression.Lambda<Func<object>>(body);
 
-            // Only commit translator-staged side effects (type table additions) and
-            // advance the Roslyn chain after build succeeded (no fail-fast thrown).
-            translator.Commit();
-            m_Previous = compilation;
-            return lambda;
+            // Build only — translator-staged type-table additions and the Roslyn
+            // chain advance are deferred to PreparedLiteSubmission.Commit(), which
+            // the caller runs only after the player confirms execution.
+            return new PreparedLiteSubmission(this, lambda, translator, compilation);
         }
 
         private static MetadataReference[] BuildReferences()
@@ -189,6 +202,41 @@ namespace Zh1Zh1.CSharpConsole.Lite
                     $"Roslyn version: {typeof(CSharpCompilationOptions).Assembly.GetName().Version}");
             }
         }
+
+        // A compiled-but-uncommitted Lite submission. Commit() promotes the
+        // submission's declared session-slot types into SlotTypes and advances
+        // the Roslyn submission chain; the caller runs it only after the player
+        // confirms successful execution, so editor session state never diverges
+        // from the player slot dictionary on a player-side failure.
+        public sealed class PreparedLiteSubmission : IPreparedLiteSubmission
+        {
+            private readonly LiteREPLCompiler m_Owner;
+            private readonly RoslynToExpressionTranslator m_Translator;
+            private readonly CSharpCompilation m_Compilation;
+            private bool m_Committed;
+
+            internal PreparedLiteSubmission(
+                LiteREPLCompiler owner,
+                Expression<Func<object>> lambda,
+                RoslynToExpressionTranslator translator,
+                CSharpCompilation compilation)
+            {
+                m_Owner = owner;
+                Lambda = lambda;
+                m_Translator = translator;
+                m_Compilation = compilation;
+            }
+
+            public Expression<Func<object>> Lambda { get; }
+
+            public void Commit()
+            {
+                if (m_Committed) return;
+                m_Translator.Commit();
+                m_Owner.m_Previous = m_Compilation;
+                m_Committed = true;
+            }
+        }
     }
 
     // ===================================================================
@@ -210,7 +258,7 @@ namespace Zh1Zh1.CSharpConsole.Lite
         // Out-vars declared inline by `out int n` syntax during this submission.
         // They live in m_SubmissionScope (lookup) and m_SubmissionOutVars (ordered
         // list for body Block.Variables) — both populated in BindArguments and
-        // drained by LiteREPLCompiler.CompileToLambda after translation.
+        // drained by LiteREPLCompiler.PrepareSubmission after translation.
         private readonly Dictionary<string, ParameterExpression> m_SubmissionScope =
             new Dictionary<string, ParameterExpression>(StringComparer.Ordinal);
         private readonly List<ParameterExpression> m_SubmissionOutVars = new List<ParameterExpression>();
@@ -2887,7 +2935,7 @@ namespace Zh1Zh1.CSharpConsole.Lite
                         // `out int n` — create a fresh ParameterExpression and
                         // hoist it via the submission-scope so subsequent code in
                         // this submission can read it. The body Block declares the
-                        // accumulated out-vars in CompileToLambda.
+                        // accumulated out-vars in PrepareSubmission.
                         var varName = svd.Identifier.ValueText;
                         var declType = decl.Type.IsVar
                             ? unwrapType
