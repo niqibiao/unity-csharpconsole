@@ -153,11 +153,13 @@ REPL service 在监听线程接收请求，通过 `MainThreadRequestRunner` 把 
 | `new Test().m_TestPrivate`（user-defined private 字段） | `10`（验 `SetIgnoreAccessibility` 反射 hack） |
 | `class Foo {}` fail-fast | `[E_LITE_TYPE_DECL]` |
 | HybridCLR-mode 显式提交（无 executorMode 字段） | `NullHybridExecutor` 抛错（证明分支正确） |
+| P1-1 Translator 三类 case · Editor in-process spike | ✅ 15/15 PASS direct + wire-roundtrip（`Editor/Spike/LiteTranslatorP1Spike.cs`） |
+| P1-1 Translator 三类 case · Win Standalone IL2CPP Dev Player E2E | ✅ 15/15 PASS 通过 Editor→HTTP→Player 完整链路（2026-05-20；Player 二进制无需重建——新 translator 输出全部复用既有 NodeKind/UnaryOp/BinaryOp 值，向后兼容旧 reader） |
 | Android / iOS IL2CPP | ⏳ 待验 |
 
 ## 6. 已知 P1 后续
 
-- **Translator 边界 case**：`new[]{...}`（ImplicitArrayCreation）、`string + string`（应翻 `string.Concat`）、`enum | enum`（按位或）未支持
+- ~~**Translator 边界 case**：`new[]{...}`（ImplicitArrayCreation）、`string + string`（应翻 `string.Concat`）、`enum | enum`（按位或）未支持~~ — **已完成**：commit `72c25f4`（translator）+ `c4b3530`（spike 加 wire-roundtrip）；§5 IL2CPP Player E2E 15/15 PASS。`VisitArrayCreation` 显式 `new double[]{1,2,3}` 同 numeric-promotion gap 留作后续小修。
 - **完整自动 resync**：当前 player 不支持 ingest resync frame；client 看到 `needsResync` 后只能手动 `:reset`
 - **Android/iOS IL2CPP 真机扩验**
 - **Release Build（Managed Stripping High）下 link.xml 验证**
