@@ -703,6 +703,7 @@ namespace Zh1Zh1.CSharpConsole.Lite
                 case PrefixUnaryExpressionSyntax pre: return VisitPrefixUnary(pre);
                 case ElementAccessExpressionSyntax elem: return VisitElementAccess(elem);
                 case ArrayCreationExpressionSyntax arr: return VisitArrayCreation(arr);
+                case ImplicitArrayCreationExpressionSyntax iarr: return VisitImplicitArrayCreation(iarr);
                 case InterpolatedStringExpressionSyntax interp: return VisitInterpolated(interp);
                 case ParenthesizedLambdaExpressionSyntax plam: return VisitLambdaParen(plam, targetType);
                 case ConditionalAccessExpressionSyntax cae: return VisitConditionalAccess(cae);
@@ -781,7 +782,20 @@ namespace Zh1Zh1.CSharpConsole.Lite
             NormalizeNullableOperands(ref left, ref right);
             switch (bin.Kind())
             {
-                case SyntaxKind.AddExpression: return Expression.Add(left, right);
+                case SyntaxKind.AddExpression:
+                    // C# `string + X` lowers to `string.Concat`; Expression.Add
+                    // would look for op_Addition which string doesn't have.
+                    if (left.Type == typeof(string) || right.Type == typeof(string))
+                    {
+                        if (left.Type == typeof(string) && right.Type == typeof(string))
+                            return Expression.Call(s_StringConcatSS, left, right);
+                        // Mixed string + value/ref: use Concat(object, object) and
+                        // box the value-type side so Concat's ToString-based path runs.
+                        var lo = left.Type.IsValueType ? (Expression)Expression.Convert(left, typeof(object)) : left;
+                        var ro = right.Type.IsValueType ? (Expression)Expression.Convert(right, typeof(object)) : right;
+                        return Expression.Call(s_StringConcatOO, lo, ro);
+                    }
+                    return Expression.Add(left, right);
                 case SyntaxKind.SubtractExpression: return Expression.Subtract(left, right);
                 case SyntaxKind.MultiplyExpression: return Expression.Multiply(left, right);
                 case SyntaxKind.DivideExpression: return Expression.Divide(left, right);
@@ -801,9 +815,18 @@ namespace Zh1Zh1.CSharpConsole.Lite
                 case SyntaxKind.LogicalAndExpression: return Expression.AndAlso(left, right);
                 case SyntaxKind.LogicalOrExpression: return Expression.OrElse(left, right);
                 case SyntaxKind.CoalesceExpression: return Expression.Coalesce(left, right);
-                case SyntaxKind.BitwiseAndExpression: return Expression.And(left, right);
-                case SyntaxKind.BitwiseOrExpression: return Expression.Or(left, right);
-                case SyntaxKind.ExclusiveOrExpression: return Expression.ExclusiveOr(left, right);
+                case SyntaxKind.BitwiseAndExpression:
+                    return IsBitwiseEnumPair(left, right)
+                        ? LiftEnumBitwise(left, right, Expression.And)
+                        : Expression.And(left, right);
+                case SyntaxKind.BitwiseOrExpression:
+                    return IsBitwiseEnumPair(left, right)
+                        ? LiftEnumBitwise(left, right, Expression.Or)
+                        : Expression.Or(left, right);
+                case SyntaxKind.ExclusiveOrExpression:
+                    return IsBitwiseEnumPair(left, right)
+                        ? LiftEnumBitwise(left, right, Expression.ExclusiveOr)
+                        : Expression.ExclusiveOr(left, right);
                 case SyntaxKind.LeftShiftExpression: return Expression.LeftShift(left, right);
                 case SyntaxKind.RightShiftExpression: return Expression.RightShift(left, right);
                 default:
@@ -869,6 +892,34 @@ namespace Zh1Zh1.CSharpConsole.Lite
             }
             if (test == null) test = Expression.Constant(true);
             return equal ? test : (Expression)Expression.Not(test);
+        }
+
+        // String concat & enum bitwise: C# overload resolution for `+` on string
+        // and `| & ^` on enum doesn't map to op_Addition / op_Or on the operand
+        // types — the compiler synthesizes calls / underlying-type lifts. The
+        // translator mirrors that here so lambda.Compile doesn't hit "operator
+        // not defined" at the BCL level.
+
+        private static readonly MethodInfo s_StringConcatSS =
+            typeof(string).GetMethod("Concat", new[] { typeof(string), typeof(string) });
+        private static readonly MethodInfo s_StringConcatOO =
+            typeof(string).GetMethod("Concat", new[] { typeof(object), typeof(object) });
+
+        private static bool IsBitwiseEnumPair(Expression left, Expression right)
+        {
+            return left.Type.IsEnum && left.Type == right.Type;
+        }
+
+        // Convert each enum operand to its underlying integral, apply the BCL
+        // factory, convert the result back to the enum type. Same shape the C#
+        // compiler emits for `flag |= MyFlags.X`.
+        private static Expression LiftEnumBitwise(
+            Expression left, Expression right,
+            Func<Expression, Expression, BinaryExpression> op)
+        {
+            var underlying = Enum.GetUnderlyingType(left.Type);
+            var bin = op(Expression.Convert(left, underlying), Expression.Convert(right, underlying));
+            return Expression.Convert(bin, left.Type);
         }
 
         private Type ResolveTypeFromSyntax(ExpressionSyntax typeNode)
@@ -1375,6 +1426,28 @@ namespace Zh1Zh1.CSharpConsole.Lite
             Recurse(arr.Initializer, new int[rank], 0);
             stmts.Add(temp);
             return Expression.Block(temp.Type, new[] { temp }, stmts);
+        }
+
+        // `new[]{1, 2, 3}` — element type is inferred by Roslyn (no syntactic
+        // type node), so we ask the SemanticModel rather than walk the syntax.
+        // Always 1-dimensional with an Initializer per C# grammar.
+        //
+        // Numeric mix like `new[]{1.0, 2, 3}` unifies to `double[]` per C# best-
+        // common-type rules. VisitLiteral ignores targetType, so int literals
+        // stay `Int32` and `Expression.NewArrayInit` rejects the slot — promote
+        // each element via Expression.Convert when it doesn't already match.
+        private Expression VisitImplicitArrayCreation(ImplicitArrayCreationExpressionSyntax arr)
+        {
+            var arrTypeSym = m_Model.GetTypeInfo(arr).Type as IArrayTypeSymbol;
+            if (arrTypeSym == null)
+                throw new InvalidOperationException($"Cannot resolve array type for '{arr}'");
+            var elemType = ResolveTypeSymbol(arrTypeSym.ElementType);
+            var elems = arr.Initializer.Expressions.Select(e =>
+            {
+                var ev = VisitExpression(e, elemType);
+                return ev.Type == elemType ? ev : Expression.Convert(ev, elemType);
+            }).ToArray();
+            return Expression.NewArrayInit(elemType, elems);
         }
 
         private static readonly MethodInfo s_StringFormat =
