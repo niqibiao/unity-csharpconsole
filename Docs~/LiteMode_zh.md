@@ -157,7 +157,27 @@ REPL service 在监听线程接收请求，通过 `MainThreadRequestRunner` 把 
 | P1-1 Translator 三类 case · Win Standalone IL2CPP Dev Player E2E | ✅ 15/15 PASS 通过 Editor→HTTP→Player 完整链路（2026-05-20；Player 二进制无需重建——新 translator 输出全部复用既有 NodeKind/UnaryOp/BinaryOp 值，向后兼容旧 reader） |
 | VisitExpression targetType 中心化收口 · 8 个 type-enforcement gate case（ctor 多参/混合、List<T> init、Dict 复合 init、explicit `new T[]{...}`、params varargs、方法 overload 选择） | ✅ 8/8 PASS direct + wire（spike D 类）；ad-hoc Player IL2CPP 包括 `new Vector2(1,0)` / `new Vector3(1,2.5f,3)` 全过 |
 | Win Standalone IL2CPP Dev Build · ManagedStrippingLevel=**High** · 全 23 case (P1-1 15 + D 8) | ✅ 23/23 PASS（2026-05-20；`Build/LiteOnly_StripHigh/`，GameAssembly.dll 44.8MB vs Minimal 50.1MB ~11% 压缩）。证明 `Runtime/link.xml` 覆盖足够：`string.Concat` 各 overload、enum 反射、`Expression.NewArrayInit` element handling、Unity API surface（Vector2/3 ctor、List/Dict 泛型方法）在 High stripping 下全部存活。 |
+| **P1-6 性能基线**：同一 hot loop 走三条路径对比（`Editor/Spike/LiteBenchmark.cs`） | ✅ 见下文「性能基线」一节 |
 | Android / iOS IL2CPP | ⏳ 待验 |
+
+### 5.1 性能基线 (P1-6)
+
+同一段 hot loop 走三条路径对比，每条 3 次（warm-up 不计），Stopwatch 在 lambda 内部计时（剔除 HTTP/wire/编译开销）。Bench 源代码在 `Editor/Spike/LiteBenchmark.cs`。
+
+| Loop | A: Editor Roslyn (Mono JIT) | B: Lite on Editor Mono | C: Lite on Player IL2CPP (Stripping=High) |
+|---|---|---|---|
+| Sqrt 累加 1M 迭代 | **9.2 ms** | 123 ms (13× A) | **13.3 ms** (1.4× A) |
+| Int 累加 10M 迭代 | **13.8 ms** | ~1400 ms (100× A) | **22 ms** (1.6× A) |
+
+**意外发现 C ≪ B**：BCL interpreter 在 IL2CPP 上比在 Mono 上快 **9-63 倍**。原因：
+
+- A 是 Mono JIT 把用户的 hot loop 直接编译成 native code 然后跑（无 dispatch 开销）
+- B 是 Mono JIT 把 `System.Linq.Expressions.Interpreter` 编译成 native code，interpreter 再 walk 用户 Expression 树（每次循环要走节点 dispatch + boxing + 方法调用间接）
+- C 是 **IL2CPP 把 `System.Linq.Expressions.Interpreter` 自己 AOT 编译成 native code**，interpreter dispatch loop 本身是 AOT 原生码——内层循环近乎 native 速度
+
+**结论**：Lite mode 在 IL2CPP Player 上**性能可用**，相比 JIT 只慢 1.4-1.6×，REPL 用途绰绰有余。Mono Editor 上跑 Lite 慢一个量级以上，但那条路径只在 spike 验证里用，不上用户面。
+
+**附带**：Stopwatch 在 Stripping=High 下没有被 strip 掉（C 跑得通），`Runtime/link.xml` 不需要补 Stopwatch。
 
 ## 6. 已知 P1 后续
 
@@ -167,7 +187,7 @@ REPL service 在监听线程接收请求，通过 `MainThreadRequestRunner` 把 
 - **Android/iOS IL2CPP 真机扩验**
 - ~~**Release Build（Managed Stripping High）下 link.xml 验证**~~ — **已完成**：2026-05-20 在 LiteOnly Win Standalone IL2CPP Dev Build (Stripping=High) 上跑全 23 case PASS（见 §5）。**注**：纯 Release Build（不带 `DEVELOPMENT_BUILD`）下 `Runtime/Zh1Zh1.CSharpConsole.Runtime.asmdef` 整个被 asmdef 条件编译排除，HTTP service 根本不进 Player——这是按设计（CLAUDE.md 项目说明），不需要验。所以"Release Build"上限就是 Dev Build + High stripping。
 - **异常诊断 probe**：NRE stack trace / line number 跨 wire 序列化定位
-- **性能基线**：BCL interpreter vs Editor Mono 同负载循环
+- ~~**性能基线**：BCL interpreter vs Editor Mono 同负载循环~~ — **已完成**：见 §5.1 性能基线。结论：Lite on Player IL2CPP **比 Editor Roslyn JIT 只慢 1.4-1.6×**，比 Lite on Editor Mono 快 9-63×。Player IL2CPP AOT 编译了 BCL interpreter 本身。Lite 模式对 REPL 用途**性能可用**。
 
 ## 7. Commit 列表（31 个，按时间正序）
 
