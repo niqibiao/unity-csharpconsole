@@ -155,11 +155,13 @@ REPL service 在监听线程接收请求，通过 `MainThreadRequestRunner` 把 
 | HybridCLR-mode 显式提交（无 executorMode 字段） | `NullHybridExecutor` 抛错（证明分支正确） |
 | P1-1 Translator 三类 case · Editor in-process spike | ✅ 15/15 PASS direct + wire-roundtrip（`Editor/Spike/LiteTranslatorP1Spike.cs`） |
 | P1-1 Translator 三类 case · Win Standalone IL2CPP Dev Player E2E | ✅ 15/15 PASS 通过 Editor→HTTP→Player 完整链路（2026-05-20；Player 二进制无需重建——新 translator 输出全部复用既有 NodeKind/UnaryOp/BinaryOp 值，向后兼容旧 reader） |
+| VisitExpression targetType 中心化收口 · 8 个 type-enforcement gate case（ctor 多参/混合、List<T> init、Dict 复合 init、explicit `new T[]{...}`、params varargs、方法 overload 选择） | ✅ 8/8 PASS direct + wire（spike D 类）；ad-hoc Player IL2CPP 包括 `new Vector2(1,0)` / `new Vector3(1,2.5f,3)` 全过 |
 | Android / iOS IL2CPP | ⏳ 待验 |
 
 ## 6. 已知 P1 后续
 
-- ~~**Translator 边界 case**：`new[]{...}`（ImplicitArrayCreation）、`string + string`（应翻 `string.Concat`）、`enum | enum`（按位或）未支持~~ — **已完成**：commit `72c25f4`（translator）+ `c4b3530`（spike 加 wire-roundtrip）；§5 IL2CPP Player E2E 15/15 PASS。`VisitArrayCreation` 显式 `new double[]{1,2,3}` 同 numeric-promotion gap 留作后续小修。
+- ~~**Translator 边界 case**：`new[]{...}`（ImplicitArrayCreation）、`string + string`（应翻 `string.Concat`）、`enum | enum`（按位或）未支持~~ — **已完成**：commit `72c25f4`（translator）+ `c4b3530`（spike 加 wire-roundtrip）；§5 IL2CPP Player E2E 15/15 PASS。
+- ~~`VisitArrayCreation` 显式 `new double[]{1,2,3}` 同 numeric-promotion gap、`new Vector2(1,0)` ctor int→float 不通——同一类 bug~~ — **已完成**：commit `af470d2` 把 `VisitExpression` 改成 raw + targetType 中心化包装层，**所有 `VisitExpression(e, T)` 调用现在保证返回值 `.Type == T`**。spike D 类 8 个 case 回归覆盖，包含 ctor 多参、collection init、explicit array、params、overload 选择。VisitImplicitArrayCreation 与 BindArguments 等的 per-callsite Convert/EnsureType 思路被这次改动取代。
 - **完整自动 resync**：当前 player 不支持 ingest resync frame；client 看到 `needsResync` 后只能手动 `:reset`
 - **Android/iOS IL2CPP 真机扩验**
 - **Release Build（Managed Stripping High）下 link.xml 验证**
