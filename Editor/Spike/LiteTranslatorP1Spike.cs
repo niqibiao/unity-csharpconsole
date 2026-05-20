@@ -67,6 +67,19 @@ namespace Zh1Zh1.CSharpConsole.EditorSpike
                 new Case("C3 string[][2]",     "new[]{\"a\",\"b\",\"c\"}[2]",   "c"),
                 new Case("C4 double mix [0]",  "new[]{1.0, 2, 3}[0]",           1.0),
                 new Case("C5 single element",  "new[]{42}[0]",                  42),
+
+                // D. type-enforcement at VisitExpression  — the central wrapper
+                // around VisitExpression now Convert-wraps on targetType mismatch.
+                // Covers ctor args, collection init Add args, explicit array
+                // elements, params arrays, method overload arg promotion.
+                new Case("D1 Vector2 int args",   "new Vector2(1, 0).x",                                                    1f),
+                new Case("D2 Vector3 mixed",      "new Vector3(1, 2.5f, 3).y",                                              2.5f),
+                new Case("D3 List<float> init",   "new List<float>{1, 2, 3}.Count",                                         3),
+                new Case("D4 Dict complex init",  "new Dictionary<int,float>{{1, 2}, {3, 4}}.Count",                        2),
+                new Case("D5 explicit double[]",  "new double[]{1, 2, 3}[0]",                                               1.0),
+                new Case("D6 explicit float[]",   "new float[]{1, 2, 3}[2]",                                                3f),
+                new Case("D7 params Concat",      "string.Concat(\"a\", 1, 2.5)",                                           "a12.5"),
+                new Case("D8 Math.Max overload",  "System.Math.Max(1.0, 2)",                                                2.0),
             };
 
             int pass = 0, fail = 0;

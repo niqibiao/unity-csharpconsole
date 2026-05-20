@@ -673,7 +673,25 @@ namespace Zh1Zh1.CSharpConsole.Lite
         }
 
         // ---------- expressions ----------
+        // Single chokepoint that enforces the invariant: when callers pass a
+        // non-null targetType, the returned Expression's .Type is exactly that
+        // type. Implementation visitors below produce a raw tree using whatever
+        // source types fall out of translation (Int32 literal, etc.); this
+        // wrapper inserts Expression.Convert on mismatch.
+        //
+        // This is the load-bearing rule that lets BindArguments / Expression.New /
+        // Expression.NewArrayInit etc. trust the result they get back. Visitors
+        // that already produce the right type (lambdas with delegate target,
+        // default-literal with explicit target) hit the no-op fast path.
         private Expression VisitExpression(ExpressionSyntax expr, Type targetType)
+        {
+            var raw = VisitExpressionRaw(expr, targetType);
+            if (targetType != null && raw != null && raw.Type != targetType)
+                return Expression.Convert(raw, targetType);
+            return raw;
+        }
+
+        private Expression VisitExpressionRaw(ExpressionSyntax expr, Type targetType)
         {
             switch (expr)
             {
@@ -1432,21 +1450,17 @@ namespace Zh1Zh1.CSharpConsole.Lite
         // type node), so we ask the SemanticModel rather than walk the syntax.
         // Always 1-dimensional with an Initializer per C# grammar.
         //
-        // Numeric mix like `new[]{1.0, 2, 3}` unifies to `double[]` per C# best-
-        // common-type rules. VisitLiteral ignores targetType, so int literals
-        // stay `Int32` and `Expression.NewArrayInit` rejects the slot — promote
-        // each element via Expression.Convert when it doesn't already match.
+        // Per-element numeric promotion (e.g. `new[]{1.0, 2, 3}` unifies to
+        // `double[]`) is handled by the VisitExpression wrapper — passing
+        // elemType as targetType guarantees the returned Expression already
+        // matches the slot type.
         private Expression VisitImplicitArrayCreation(ImplicitArrayCreationExpressionSyntax arr)
         {
             var arrTypeSym = m_Model.GetTypeInfo(arr).Type as IArrayTypeSymbol;
             if (arrTypeSym == null)
                 throw new InvalidOperationException($"Cannot resolve array type for '{arr}'");
             var elemType = ResolveTypeSymbol(arrTypeSym.ElementType);
-            var elems = arr.Initializer.Expressions.Select(e =>
-            {
-                var ev = VisitExpression(e, elemType);
-                return ev.Type == elemType ? ev : Expression.Convert(ev, elemType);
-            }).ToArray();
+            var elems = arr.Initializer.Expressions.Select(e => VisitExpression(e, elemType)).ToArray();
             return Expression.NewArrayInit(elemType, elems);
         }
 
