@@ -316,6 +316,10 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
         /// <param name="defines">Preprocessor symbols.</param>
         /// <param name="defaultUsing">Default using prefix.</param>
         /// <returns>Completion items.</returns>
+        // Thin wrapper around the shared ReplCompletionEngine: this side owns
+        // the script-chain state (m_PreviousCompilation, usings cache,
+        // references), the engine owns the Roslyn-level symbol lookup +
+        // formatting that's identical across compilers.
         public List<CompletionItem> GetCompletions(string code, int cursorPosition, string defines, string defaultUsing)
         {
             var allDefineSymbols = ResolveDefineSymbols(defines);
@@ -329,7 +333,6 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
             }
             var fullCode = usingPrefix + code;
             var adjustedPosition = usingPrefix.Length + cursorPosition;
-
             if (adjustedPosition < 0) adjustedPosition = 0;
             if (adjustedPosition > fullCode.Length) adjustedPosition = fullCode.Length;
 
@@ -349,132 +352,7 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
                 prevCompilation,
                 typeof(object));
 
-            var semanticModel = compilation.GetSemanticModel(tree);
-
-            var root = tree.GetRoot();
-            var token = root.FindToken(adjustedPosition);
-
-            var memberAccess = token.Parent?.FirstAncestorOrSelf<MemberAccessExpressionSyntax>();
-            if (memberAccess == null && adjustedPosition > 0)
-            {
-                token = root.FindToken(adjustedPosition - 1);
-                memberAccess = token.Parent?.FirstAncestorOrSelf<MemberAccessExpressionSyntax>();
-            }
-
-            while (memberAccess?.Parent is MemberAccessExpressionSyntax outer
-                   && adjustedPosition > outer.OperatorToken.SpanStart)
-            {
-                memberAccess = outer;
-            }
-            if (memberAccess != null && adjustedPosition > memberAccess.OperatorToken.SpanStart)
-            {
-                var symbolInfo = semanticModel.GetSymbolInfo(memberAccess.Expression);
-
-                if (symbolInfo.Symbol is INamedTypeSymbol namedType)
-                {
-                    var staticMembers = CollectAllTypeMembers(namedType)
-                        .Where(m => m.IsStatic);
-                    return BuildSortedCompletionItems(staticMembers);
-                }
-
-                if (symbolInfo.Symbol is INamespaceSymbol ns)
-                {
-                    return BuildSortedCompletionItems(ns.GetMembers());
-                }
-
-                var typeInfo = semanticModel.GetTypeInfo(memberAccess.Expression);
-                var type = typeInfo.Type ?? typeInfo.ConvertedType;
-                if (type != null)
-                {
-                    var lookupSymbols = semanticModel.LookupSymbols(adjustedPosition, type);
-                    var allTypeMembers = CollectAllTypeMembers(type);
-                    return BuildSortedCompletionItems(lookupSymbols.Concat(allTypeMembers));
-                }
-            }
-
-            var symbols = semanticModel.LookupSymbols(adjustedPosition);
-            return BuildSortedCompletionItems(symbols);
-        }
-
-        private static IEnumerable<ISymbol> CollectAllTypeMembers(ITypeSymbol type)
-        {
-            var current = type;
-            while (current != null)
-            {
-                foreach (var member in current.GetMembers())
-                {
-                    yield return member;
-                }
-                current = current.BaseType;
-            }
-        }
-
-        private static List<CompletionItem> BuildSortedCompletionItems(IEnumerable<ISymbol> symbols)
-        {
-            return symbols
-                .Where(s => s.CanBeReferencedByName && !IsObsolete(s))
-                .GroupBy(s => s.Name)
-                .Select(g => g.OrderBy(s => GetAccessibilityPriority(s.DeclaredAccessibility)).First())
-                .OrderBy(s => GetAccessibilityPriority(s.DeclaredAccessibility))
-                .ThenBy(s => GetKindPriority(s.Kind))
-                .ThenBy(s => s.Name, StringComparer.OrdinalIgnoreCase)
-                .Select(ToCompletionItem)
-                .ToList();
-        }
-
-        private static int GetAccessibilityPriority(Accessibility accessibility)
-        {
-            switch (accessibility)
-            {
-                case Accessibility.Public: return 0;
-                case Accessibility.Internal: return 1;
-                case Accessibility.ProtectedOrInternal: return 1;
-                case Accessibility.Protected: return 2;
-                case Accessibility.ProtectedAndInternal: return 2;
-                case Accessibility.Private: return 3;
-                default: return 4;
-            }
-        }
-
-        private static int GetKindPriority(SymbolKind kind)
-        {
-            switch (kind)
-            {
-                case SymbolKind.Local: return 0;
-                case SymbolKind.Parameter: return 0;
-                case SymbolKind.Field: return 1;
-                case SymbolKind.Property: return 1;
-                case SymbolKind.Method: return 2;
-                case SymbolKind.Event: return 3;
-                case SymbolKind.NamedType: return 4;
-                case SymbolKind.Namespace: return 5;
-                default: return 6;
-            }
-        }
-
-        private static bool IsObsolete(ISymbol symbol)
-        {
-            foreach (var attr in symbol.GetAttributes())
-            {
-                if (attr.AttributeClass != null
-                    && attr.AttributeClass.Name == "ObsoleteAttribute"
-                    && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "System")
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        private static CompletionItem ToCompletionItem(ISymbol symbol)
-        {
-            return new CompletionItem
-            {
-                Label = symbol.Name,
-                Kind = symbol.Kind.ToString(),
-                Detail = symbol.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
-                Accessibility = symbol.DeclaredAccessibility.ToString(),
-            };
+            return ReplCompletionEngine.Lookup(compilation, tree, adjustedPosition);
         }
     }
 }

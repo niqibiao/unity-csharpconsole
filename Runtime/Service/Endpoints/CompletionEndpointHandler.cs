@@ -25,11 +25,27 @@ namespace Zh1Zh1.CSharpConsole.Service.Endpoints
             {
                 var req = JsonUtility.FromJson<CompletionRequest>(message);
 
-                IREPLCompiler compiler = !string.IsNullOrEmpty(req.runtimeDllPath)
-                    ? _dependencies.FetchRuntimeReplCompiler(req.uuid, req.runtimeDllPath)
-                    : _dependencies.FetchEditorReplCompiler(req.uuid);
+                // Route to the Lite session's completion provider when the
+                // client explicitly opts in; otherwise fall through to the
+                // legacy HybridCLR-flavored path (BaseREPLCompiler subclasses
+                // implement IREPLCompletionProvider natively).
+                IREPLCompletionProvider completionProvider;
+                string providerName;
+                if (req.executorMode == "lite")
+                {
+                    completionProvider = _dependencies.FetchLiteCompletionProvider(req.uuid);
+                    providerName = completionProvider?.GetType().Name ?? "LiteCompletionProvider (null)";
+                }
+                else
+                {
+                    IREPLCompiler compiler = !string.IsNullOrEmpty(req.runtimeDllPath)
+                        ? _dependencies.FetchRuntimeReplCompiler(req.uuid, req.runtimeDllPath)
+                        : _dependencies.FetchEditorReplCompiler(req.uuid);
+                    completionProvider = compiler as IREPLCompletionProvider;
+                    providerName = compiler?.GetType().Name ?? "null";
+                }
 
-                if (compiler is IREPLCompletionProvider completionProvider)
+                if (completionProvider != null)
                 {
                     var items = completionProvider.GetCompletions(req.code, req.cursorPosition, req.defines, req.defaultUsing);
                     responseData = new CompletionResponse
@@ -51,7 +67,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Endpoints
                 {
                     responseData = new CompletionResponse
                     {
-                        error = $"Compiler ({compiler?.GetType().Name}) does not implement IREPLCompletionProvider"
+                        error = $"No IREPLCompletionProvider available for executorMode='{req.executorMode}' (provider candidate: {providerName})"
                     };
                 }
             }

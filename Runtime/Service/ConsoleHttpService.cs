@@ -56,7 +56,10 @@ namespace Zh1Zh1.CSharpConsole.Service
                 BuildHealthResponseSnapshot,
                 WriteEnvelopeResponseAsync,
                 sessionId => s_ReplServiceRegistry.FetchEditorREPLCompiler(sessionId, s_EditorREPLCompilerGenerator),
-                (sessionId, runtimeDllPath) => s_ReplServiceRegistry.FetchRuntimeREPLCompiler(sessionId, runtimeDllPath, s_RuntimeREPLCompilerGenerator));
+                (sessionId, runtimeDllPath) => s_ReplServiceRegistry.FetchRuntimeREPLCompiler(sessionId, runtimeDllPath, s_RuntimeREPLCompilerGenerator),
+                sessionId => s_LiteCompilerGenerator != null
+                    ? s_ReplServiceRegistry.FetchLiteSession(sessionId, s_LiteCompilerGenerator).Compiler as IREPLCompletionProvider
+                    : null);
             s_HealthEndpointHandler ??= new HealthEndpointHandler(s_Dependencies);
             s_CommandEndpointHandler ??= new CommandEndpointHandler(s_Dependencies);
             s_BatchEndpointHandler ??= new BatchEndpointHandler(s_Dependencies);

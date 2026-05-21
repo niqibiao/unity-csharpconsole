@@ -39,6 +39,12 @@ namespace Zh1Zh1.CSharpConsole.Service
         public string defines = "";
         public string defaultUsing = "";
         public string runtimeDllPath = "";
+        // Mirrors CompileREPLRequest.executorMode: "lite" routes the completion
+        // through the LiteREPLCompiler's session (so cross-submission slot
+        // declarations show up in lookups); anything else (including the empty
+        // legacy default) stays on the HybridCLR-flavored BaseREPLCompiler path.
+        // Client populates from /health.playerExecutorMode in runtime mode.
+        public string executorMode = "";
     }
 
     [Serializable]

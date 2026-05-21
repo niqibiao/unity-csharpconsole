@@ -11,6 +11,8 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using UnityEngine;
+using Zh1Zh1.CSharpConsole.Editor.Compiler;
+using Zh1Zh1.CSharpConsole.Interface;
 
 namespace Zh1Zh1.CSharpConsole.Lite
 {
@@ -19,7 +21,7 @@ namespace Zh1Zh1.CSharpConsole.Lite
     // LiteREPLCompiler: per-REPL-instance state. Owns Roslyn compilation chain and
     // the runtime slot store.
     // ===================================================================
-    public sealed class LiteREPLCompiler : ILiteCompiler
+    public sealed class LiteREPLCompiler : ILiteCompiler, IREPLCompletionProvider
     {
         public readonly Dictionary<string, object> Slots = new(StringComparer.Ordinal);
         public readonly Dictionary<string, Type> SlotTypes = new(StringComparer.Ordinal);
@@ -57,6 +59,42 @@ namespace Zh1Zh1.CSharpConsole.Lite
             m_Previous = null;
             Slots.Clear();
             SlotTypes.Clear();
+        }
+
+        // IREPLCompletionProvider — reuses the shared ReplCompletionEngine so
+        // Lite-mode completion stays in lock-step with the HybridCLR-path
+        // implementation. This side owns the Lite-specific state (m_Previous
+        // Roslyn chain, m_References, s_DefaultUsings); the engine does the
+        // Roslyn symbol lookup + sort + format that's identical across compilers.
+        //
+        // `defines` is accepted for interface parity but currently unused —
+        // Lite-mode submissions do not carry per-session preprocessor symbols
+        // (CompileREPLRequest.executorMode="lite" path never wires `defines`).
+        // If that changes, plumb it into the parse options here.
+        public List<CompletionItem> GetCompletions(string code, int cursorPosition, string defines, string defaultUsing)
+        {
+            var refs = m_References ??= BuildReferences();
+            var prefix = s_DefaultUsings + (string.IsNullOrEmpty(defaultUsing) ? "" : (defaultUsing.EndsWith("\n") ? defaultUsing : defaultUsing + "\n"));
+            var fullCode = prefix + code;
+            var adjustedPosition = prefix.Length + cursorPosition;
+            if (adjustedPosition < 0) adjustedPosition = 0;
+            if (adjustedPosition > fullCode.Length) adjustedPosition = fullCode.Length;
+
+            var tree = CSharpSyntaxTree.ParseText(fullCode, new CSharpParseOptions(kind: SourceCodeKind.Script));
+
+            var options = new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
+                .WithMetadataImportOptions(MetadataImportOptions.All);
+            SetIgnoreAccessibility(options);
+
+            var compilation = CSharpCompilation.CreateScriptCompilation(
+                "LiteCompletionTemp",
+                syntaxTree: tree,
+                references: refs,
+                options: options,
+                previousScriptCompilation: m_Previous,
+                returnType: typeof(object));
+
+            return ReplCompletionEngine.Lookup(compilation, tree, adjustedPosition);
         }
 
         // Returns the BCL LambdaExpression before .Compile() so DTO serializers
