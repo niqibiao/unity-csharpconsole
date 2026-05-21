@@ -159,6 +159,7 @@ REPL service 在监听线程接收请求，通过 `MainThreadRequestRunner` 把 
 | Win Standalone IL2CPP Dev Build · ManagedStrippingLevel=**High** · 全 23 case (P1-1 15 + D 8) | ✅ 23/23 PASS（2026-05-20；`Build/LiteOnly_StripHigh/`，GameAssembly.dll 44.8MB vs Minimal 50.1MB ~11% 压缩）。证明 `Runtime/link.xml` 覆盖足够：`string.Concat` 各 overload、enum 反射、`Expression.NewArrayInit` element handling、Unity API surface（Vector2/3 ctor、List/Dict 泛型方法）在 High stripping 下全部存活。 |
 | **P1-6 性能基线**：同一 hot loop 走三条路径对比（`Editor/Spike/LiteBenchmark.cs`） | ✅ 见下文「性能基线」一节 |
 | **P1-2 auto-reset on player restart**：声明 → 跨 submission 读 → 杀 Player → 重启 → 同 session uuid 再发 → `[SESSION_AUTO_RESET]` 通知 → 新声明可工作 | ✅ E2E 验证（2026-05-20，LiteOnly Stripping=High Player）：`var x=10; x` → 10；`x+5` → 15；杀+重启 Player；`x+5` → `[SESSION_AUTO_RESET]`；`var x=99; x+1` → 100；P1-1+D spike 23/23 不回归 |
+| **Lite completion** via shared `ReplCompletionEngine`（commit `0803944`）：Member-access / bare-identifier / 跨 submission slot 可见 | ✅ Spike 5/5 PASS（`System.Math.` / 跨 submission `x.` / 跨 submission bare `x` / 多 slot session / `Vector2.` default-using）；E2E HTTP `/completion` 加 `executorMode=lite` 验证三条；BaseREPLCompiler 走 cs.py complete 默认路径不回归（44 items for `System.Math.`） |
 | Android / iOS IL2CPP | ⏳ 待验 |
 
 ### 5.1 性能基线 (P1-6)
