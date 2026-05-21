@@ -224,13 +224,24 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
 
     internal sealed class LiteEditorSession
     {
-        public readonly ILiteCompiler Compiler;
-        public readonly SessionTypeRegistry Registry;
+        public ILiteCompiler Compiler { get; }
+        public SessionTypeRegistry Registry { get; private set; }
 
         public LiteEditorSession(ILiteCompiler compiler, SessionTypeRegistry registry)
         {
             Compiler = compiler;
             Registry = registry;
+        }
+
+        // P1-2 auto-reset: when Player reports needsResync, drop all session
+        // state on this side so it mirrors a freshly-restarted Player. Compiler
+        // drops Roslyn chain + slot tables; Registry is replaced with a brand
+        // new instance (epoch=0, empty tables) so the next submission's
+        // envelope epoch matches the Player's freshly-reset epoch=0.
+        public void ResetState()
+        {
+            Compiler.ResetSessionState();
+            Registry = new SessionTypeRegistry();
         }
     }
 }

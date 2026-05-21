@@ -1329,7 +1329,7 @@ namespace Zh1Zh1.CSharpConsole.Service
                 reset = false
             };
 
-            var (text, transportOk, executeOk) = await PostLiteToPlayerAsync(ip, port, request);
+            var (text, transportOk, executeOk, needsResync) = await PostLiteToPlayerAsync(ip, port, request);
             if (transportOk && executeOk)
             {
                 // Player confirmed execution — only now promote the submission's
@@ -1341,13 +1341,24 @@ namespace Zh1Zh1.CSharpConsole.Service
             else if (!transportOk)
             {
                 // Delta flushed locally but the player never received it. Bump
-                // epoch so the next submission starts from a clean slot — full
-                // auto-resync (player IngestResync + editor PrepareResync retry)
-                // is a P1 follow-up; v1 surfaces the failure and lets the
-                // client :reset. The submission stays uncommitted.
+                // epoch so the next submission starts from a clean slot. The
+                // submission stays uncommitted.
                 session.Registry.BumpEpoch();
             }
-            // transportOk && !executeOk (player runtime error / needsResync /
+            else if (needsResync)
+            {
+                // Player reports its registry/slots are gone (player restart, or
+                // unknown typeId after an out-of-sync delta). Mirror that state
+                // loss on the editor — drop Roslyn chain, slot tables, and replace
+                // the registry — so subsequent submissions start cleanly on both
+                // sides. The submission that triggered the resync is NOT retried:
+                // previous declarations are gone, so silent retry would behave
+                // wrong. Client gets the [SESSION_AUTO_RESET] prefix to render
+                // a "redeclare and resubmit" notice. See P1-2 in LiteMode_zh.md.
+                session.ResetState();
+                return "[SESSION_AUTO_RESET] Session was reset (Player restart or registry desync detected); previous declarations are gone, please redeclare and resubmit.";
+            }
+            // transportOk && !executeOk && !needsResync (player runtime error /
             // unparseable response): the submission stays uncommitted and the
             // registry epoch is untouched — the player ingests typeReg before
             // running the body, so both registries stay in sync regardless.
@@ -1362,7 +1373,11 @@ namespace Zh1Zh1.CSharpConsole.Service
         // no error — the caller commits the editor-side submission only then.
         // A runtime error, a needsResync, or an unparseable response all yield
         // executeOk=false so the submission stays uncommitted.
-        private static async Task<(string text, bool transportOk, bool executeOk)> PostLiteToPlayerAsync(string ip, string port, ExecuteREPLRequest request)
+        //
+        // needsResync is true when the player reports the resync handshake is
+        // needed (epoch mismatch or unknown typeId); caller uses it to trigger
+        // the P1-2 auto-reset path (LiteEditorSession.ResetState).
+        private static async Task<(string text, bool transportOk, bool executeOk, bool needsResync)> PostLiteToPlayerAsync(string ip, string port, ExecuteREPLRequest request)
         {
             try
             {
@@ -1375,7 +1390,7 @@ namespace Zh1Zh1.CSharpConsole.Service
                 var raw = await response.Content.ReadAsStringAsync();
                 if (!response.IsSuccessStatusCode)
                 {
-                    return (ConsoleLog.Format($"Forward failed: {(int)response.StatusCode} {response.ReasonPhrase}: {raw}"), false, false);
+                    return (ConsoleLog.Format($"Forward failed: {(int)response.StatusCode} {response.ReasonPhrase}: {raw}"), false, false, false);
                 }
 
                 ConsoleLog.Debug($"Forwarded Lite to {ip}:{port}, response={raw}");
@@ -1385,31 +1400,31 @@ namespace Zh1Zh1.CSharpConsole.Service
                 {
                     // Unparseable envelope — cannot confirm the player executed
                     // the body, so executeOk=false keeps the submission uncommitted.
-                    return (raw, true, false);
+                    return (raw, true, false, false);
                 }
                 var data = JsonUtility.FromJson<LiteExecuteResponseData>(envelope.dataJson);
                 if (data == null)
                 {
-                    return (envelope.summary ?? raw, true, false);
+                    return (envelope.summary ?? raw, true, false, false);
                 }
                 if (data.needsResync)
                 {
-                    // Surface the resync request so the REPL client can prompt
-                    // the user to :reset. Auto-resync (editor PrepareResync +
-                    // player IngestResync) is a P1 follow-up — current player
-                    // ProcessLiteExecute does not yet ingest resync frames.
+                    // Surface needsResync so the caller can drop session state
+                    // (P1-2 auto-reset). The text we return is a fallback — the
+                    // caller's auto-reset branch overrides it with the
+                    // [SESSION_AUTO_RESET] marker.
                     var code = string.IsNullOrEmpty(data.errorCode) ? "E_TYPEREG_EPOCH_MISMATCH" : data.errorCode;
-                    return ($"[{code}] session needs reset (player epoch={data.serverEpoch}): {data.result}", true, false);
+                    return ($"[{code}] player epoch={data.serverEpoch}: {data.result}", true, false, true);
                 }
                 if (!string.IsNullOrEmpty(data.errorCode))
                 {
-                    return ($"[{data.errorCode}] {data.result}", true, false);
+                    return ($"[{data.errorCode}] {data.result}", true, false, false);
                 }
-                return (data.result ?? "", true, true);
+                return (data.result ?? "", true, true, false);
             }
             catch (Exception ex)
             {
-                return (ConsoleLog.Format($"Forward failed: {ex}"), false, false);
+                return (ConsoleLog.Format($"Forward failed: {ex}"), false, false, false);
             }
         }
 

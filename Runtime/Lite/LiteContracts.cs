@@ -18,9 +18,11 @@ namespace Zh1Zh1.CSharpConsole.Lite
     // deserialize by inspecting the envelope's `type` field.
     //
     // needsResync: Player sets this when its local registry epoch differs from the
-    //   envelope's registryEpoch (or when Resolve hits an unknown id). Editor must
-    //   respond by calling SessionTypeRegistry.PrepareResync() and resending the
-    //   full registry in the next /execute envelope's typeReg.
+    //   envelope's registryEpoch (or when Resolve hits an unknown id). Editor's
+    //   current handling (P1-2, auto-reset) is to drop session state on both
+    //   sides and return a [SESSION_AUTO_RESET]-prefixed text response — the
+    //   triggering submission is NOT retried because previous slot declarations
+    //   are gone with the player's restart. See P1-2 design in LiteMode_zh.md.
     // serverEpoch: Player's current epoch. Editor uses this to detect player
     //   restart (epoch goes back to 0 when player rebooted).
     // errorCode: structured error code from LiteWireException or executor

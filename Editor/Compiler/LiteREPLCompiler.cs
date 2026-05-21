@@ -45,6 +45,20 @@ namespace Zh1Zh1.CSharpConsole.Lite
             return lambda.Compile(preferInterpretation: true);
         }
 
+        // ILiteCompiler.ResetSessionState — drop the Roslyn submission chain
+        // and the slot tables. Called by ConsoleHttpService when the player
+        // returns needsResync (assume player restart wiped its SessionSlots
+        // and typeReg; editor must mirror that loss so the next submission
+        // starts fresh on both sides). m_References and m_Counter are kept —
+        // references are project-bound and expensive to rebuild; the asm-name
+        // counter monotonically growing is harmless.
+        public void ResetSessionState()
+        {
+            m_Previous = null;
+            Slots.Clear();
+            SlotTypes.Clear();
+        }
+
         // Returns the BCL LambdaExpression before .Compile() so DTO serializers
         // can inspect the tree. Commits translator state immediately — for the
         // in-process editor-target path where compile and execute are atomic.

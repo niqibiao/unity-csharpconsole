@@ -24,6 +24,13 @@ namespace Zh1Zh1.CSharpConsole.Lite
         // string is fine — the compiler always brings its own minimal set.
         IPreparedLiteSubmission PrepareSubmission(string code, string defaultUsing = "");
         IDictionary<string, object> Slots { get; }
+
+        // Drop all per-session state — Roslyn submission chain, slot type table,
+        // slot value dictionary. Called by the HTTP service after detecting a
+        // Player-restart-triggered needsResync; mirrors the Player's freshly-empty
+        // SessionSlots so the next submission starts from a clean state on both
+        // sides. References (assembly metadata) and asm-name counter are kept.
+        void ResetSessionState();
     }
 
     // A compiled-but-uncommitted Lite submission. Commit() promotes the
