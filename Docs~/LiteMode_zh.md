@@ -158,6 +158,7 @@ REPL service 在监听线程接收请求，通过 `MainThreadRequestRunner` 把 
 | VisitExpression targetType 中心化收口 · 8 个 type-enforcement gate case（ctor 多参/混合、List<T> init、Dict 复合 init、explicit `new T[]{...}`、params varargs、方法 overload 选择） | ✅ 8/8 PASS direct + wire（spike D 类）；ad-hoc Player IL2CPP 包括 `new Vector2(1,0)` / `new Vector3(1,2.5f,3)` 全过 |
 | Win Standalone IL2CPP Dev Build · ManagedStrippingLevel=**High** · 全 23 case (P1-1 15 + D 8) | ✅ 23/23 PASS（2026-05-20；`Build/LiteOnly_StripHigh/`，GameAssembly.dll 44.8MB vs Minimal 50.1MB ~11% 压缩）。证明 `Runtime/link.xml` 覆盖足够：`string.Concat` 各 overload、enum 反射、`Expression.NewArrayInit` element handling、Unity API surface（Vector2/3 ctor、List/Dict 泛型方法）在 High stripping 下全部存活。 |
 | **P1-6 性能基线**：同一 hot loop 走三条路径对比（`Editor/Spike/LiteBenchmark.cs`） | ✅ 见下文「性能基线」一节 |
+| **P1-2 auto-reset on player restart**：声明 → 跨 submission 读 → 杀 Player → 重启 → 同 session uuid 再发 → `[SESSION_AUTO_RESET]` 通知 → 新声明可工作 | ✅ E2E 验证（2026-05-20，LiteOnly Stripping=High Player）：`var x=10; x` → 10；`x+5` → 15；杀+重启 Player；`x+5` → `[SESSION_AUTO_RESET]`；`var x=99; x+1` → 100；P1-1+D spike 23/23 不回归 |
 | Android / iOS IL2CPP | ⏳ 待验 |
 
 ### 5.1 性能基线 (P1-6)
@@ -183,7 +184,7 @@ REPL service 在监听线程接收请求，通过 `MainThreadRequestRunner` 把 
 
 - ~~**Translator 边界 case**：`new[]{...}`（ImplicitArrayCreation）、`string + string`（应翻 `string.Concat`）、`enum | enum`（按位或）未支持~~ — **已完成**：commit `72c25f4`（translator）+ `c4b3530`（spike 加 wire-roundtrip）；§5 IL2CPP Player E2E 15/15 PASS。
 - ~~`VisitArrayCreation` 显式 `new double[]{1,2,3}` 同 numeric-promotion gap、`new Vector2(1,0)` ctor int→float 不通——同一类 bug~~ — **已完成**：commit `af470d2` 把 `VisitExpression` 改成 raw + targetType 中心化包装层，**所有 `VisitExpression(e, T)` 调用现在保证返回值 `.Type == T`**。spike D 类 8 个 case 回归覆盖，包含 ctor 多参、collection init、explicit array、params、overload 选择。VisitImplicitArrayCreation 与 BindArguments 等的 per-callsite Convert/EnsureType 思路被这次改动取代。
-- **完整自动 resync**：当前 player 不支持 ingest resync frame；client 看到 `needsResync` 后只能手动 `:reset`
+- ~~**完整自动 resync**：当前 player 不支持 ingest resync frame；client 看到 `needsResync` 后只能手动 `:reset`~~ — **已完成 (P1-2, 方案 Y / auto-reset)**：commit `a3aa554`。Editor 收到 `needsResync` 不再尝试 IngestResync 协议路径（场景 B = Player 重启会让 Slots 也丢失，单纯 resync typeReg 救不回去）；改为**双边硬重置** — `LiteREPLCompiler.ResetSessionState()` 清 Roslyn 链 + slot 表，`LiteEditorSession` 把 `Registry` 换成全新实例，response 用 `[SESSION_AUTO_RESET]` 前缀通知 client。触发的提交本身不重试（slot 已丢，自动重试语义错）。已 E2E 验证（见 §5 表）。**理论上的纯协议 auto-resync（方案 X）保留为未实现**：场景 A（typeReg 短暂失同步而 slots 完好）实际几乎不发生（单飞 + AfterSceneLoad + monotone-allocation 架构约束下），不值得引入 ingest-resync 复杂度。
 - **Android/iOS IL2CPP 真机扩验**
 - ~~**Release Build（Managed Stripping High）下 link.xml 验证**~~ — **已完成**：2026-05-20 在 LiteOnly Win Standalone IL2CPP Dev Build (Stripping=High) 上跑全 23 case PASS（见 §5）。**注**：纯 Release Build（不带 `DEVELOPMENT_BUILD`）下 `Runtime/Zh1Zh1.CSharpConsole.Runtime.asmdef` 整个被 asmdef 条件编译排除，HTTP service 根本不进 Player——这是按设计（CLAUDE.md 项目说明），不需要验。所以"Release Build"上限就是 Dev Build + High stripping。
 - **异常诊断 probe**：NRE stack trace / line number 跨 wire 序列化定位
