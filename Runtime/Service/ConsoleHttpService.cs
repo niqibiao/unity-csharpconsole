@@ -87,12 +87,26 @@ namespace Zh1Zh1.CSharpConsole.Service
 #if UNITY_EDITOR
             throw new InvalidOperationException("InitializeForRuntime can only be called in the Unity Runtime.");
 #else
-            // REPL service is a hard dependency on Update() ticking. Standalone
-            // Player defaults to runInBackground=false, which pauses Update()
-            // when the window loses focus — that strands MainThreadRequestRunner
-            // dispatches and every /execute times out. Force it on here so
-            // consumers don't have to remember to set it in their bootstrap.
-            Application.runInBackground = true;
+            // The REPL service depends on Update() ticking: requests are accepted
+            // on the listener thread but their handlers run on the main thread via
+            // MainThreadRequestRunner. A standalone Player with runInBackground=false
+            // pauses Update() when the window loses focus, stranding those handlers
+            // and timing out every /execute.
+            //
+            // runInBackground is a global application setting and is the consumer's
+            // (or demo project's) call — the package does NOT override it here.
+            // We only advise: warn once if it's off so a forgotten setting surfaces
+            // as a clear diagnostic instead of mysterious /execute timeouts.
+            if (!Application.runInBackground)
+            {
+                ConsoleLog.Warning(
+                    "ConsoleHttpService: Application.runInBackground is false. The REPL " +
+                    "service needs the main thread to keep ticking; while the Player " +
+                    "window is unfocused, /execute requests will time out. Set " +
+                    "Application.runInBackground = true in your bootstrap (or Project " +
+                    "Settings > Player > Resolution > Run In Background) if you need the " +
+                    "console to work while unfocused.");
+            }
             MainThreadRequestRunner.InitializeRuntime();
             s_RuntimeREPLExecutorGenerator = runtimeExecutorGenerator ?? throw new ArgumentNullException(nameof(runtimeExecutorGenerator));
             InitializeInternal();

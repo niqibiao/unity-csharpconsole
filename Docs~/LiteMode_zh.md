@@ -79,7 +79,7 @@ Wire 实测体积削减 ~97%（B-9：1177B → 37B for pure-expr，3339B → 85B
 
 REPL service 在监听线程接收请求，通过 `MainThreadRequestRunner` 把 work 派发到 Unity 主线程执行。如果 Player 窗口失焦、`Application.runInBackground=false`，Update() 暂停，所有 `/execute` 30s 超时。
 
-→ `ConsoleHttpService.InitializeForRuntime` 在 `#if !UNITY_EDITOR` 分支无条件设 `Application.runInBackground = true`。这是 REPL 服务的硬要求，不暴露给消费方决定。
+→ **职责归属修正（2026-05-21）**：`Application.runInBackground` 是全局应用设置，**由消费方/demo 决定，包不强制**。`ConsoleHttpService.InitializeForRuntime` 只在 `!Application.runInBackground` 时打一条 `ConsoleLog.Warning`（advise，不 manage），把"忘了设"变成清晰诊断而非神秘超时。demo 工程（`LiteOnly/Assets/Scripts/LiteBootstrap.cs`）在自己的 bootstrap 里 `Application.runInBackground = true`。理由：包强制覆盖全局设置违反 least-surprise——某些游戏故意要失焦暂停。
 
 ## 4. 文件清单（按层）
 
@@ -272,7 +272,7 @@ a52826f  fix(runtime): force runInBackground=true on Player REPL init
 | `executorMode` 字段 default `""` | 旧客户端 / 未声明字段 → JsonUtility 兼容 → Editor 落 `else` 分支走 `RuntimeREPLCompiler + ForwardDllToPlayer`，**零行为变化** |
 | `bodyBinary` 字段 default `""` | Player 端 dispatch 按 `bodyBinary` 非空判 Lite；旧客户端 `dllBase64` 路径不动 |
 | `ReplServiceRegistry` 加 Lite 字典 | 全新独立集合；HybridCLR 的 `_executors` / `_compilers` 没碰；`ResetSessionState` 同时清理两路状态保持对称 |
-| `Application.runInBackground = true` | `#if !UNITY_EDITOR` gated，Editor 不动；对 HybridCLR Player 也只是确保 Update() 不停（HybridCLR 同样依赖主线程 dispatch，有利无害） |
+| `Application.runInBackground`（2026-05-21 改为只警告不强制） | `#if !UNITY_EDITOR` gated，Editor 不动；不再覆盖消费方全局设置，仅在关着时警告。HybridCLR Player 同样依赖主线程 dispatch，所以其 demo bootstrap 也应自行设置 |
 | `DetectPlayerExecutorMode` 返回 `"lite"` 替代 `""` | Python client 容忍任意值；HybridCLR Player 仍优先报 `"hybridCLR"`，只在 HybridCLR 缺失时才落 `"lite"` |
 | `MainThreadRequestRunner` defer fix | 没改 driver 行为，只是把 GameObject 创建从「立即」改为「等 scene 加载完」；现有 HybridCLR Player 也受益（其 LiteBootstrap 用 AfterSceneLoad，恰好不触发该 bug，所以是纯防御性修复） |
 | `SetIgnoreAccessibility` 在 LiteREPLCompiler | 仅 Lite 路径；HybridCLR `BaseREPLCompiler` 早就有同样反射 hack，行为对齐而非引入新差异 |
