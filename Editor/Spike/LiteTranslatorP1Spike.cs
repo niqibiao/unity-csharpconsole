@@ -1,3 +1,4 @@
+#if !CSHARPCONSOLE_LITE_DISABLED
 // LiteTranslatorP1Spike.cs
 //
 // Verifies the §6 P1-1 translator edge cases shipped on feat/lite-mode:
@@ -169,3 +170,4 @@ namespace Zh1Zh1.CSharpConsole.EditorSpike
         }
     }
 }
+#endif

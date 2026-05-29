@@ -3,19 +3,25 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using Zh1Zh1.CSharpConsole.Interface;
+#if !CSHARPCONSOLE_LITE_DISABLED
 using Zh1Zh1.CSharpConsole.Lite;
+#endif
 
 namespace Zh1Zh1.CSharpConsole.Service.Internal
 {
     internal sealed class ReplServiceRegistry
     {
         private readonly ConcurrentDictionary<(string uuid, string path), IREPLExecutor> _executors = new();
+#if !CSHARPCONSOLE_LITE_DISABLED
         private readonly ConcurrentDictionary<string, ILiteREPLExecutor> _liteExecutors = new();
+#endif
         private readonly ConcurrentDictionary<(string uuid, string path), IREPLCompiler> _compilers = new();
+#if !CSHARPCONSOLE_LITE_DISABLED
         // Lite compiler + type registry share session lifetime, key, and eviction
         // — bundling them prevents the "one slot dropped, the other lingered"
         // bug class and halves cleanup surface.
         private readonly ConcurrentDictionary<string, LiteEditorSession> _liteSessions = new();
+#endif
         private readonly ConcurrentDictionary<string, double> _lastAccessTimes = new();
         private const double DEFAULT_IDLE_TIMEOUT_SECONDS = 21600.0; // 6 hours
 
@@ -35,6 +41,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
             return executor;
         }
 
+#if !CSHARPCONSOLE_LITE_DISABLED
         public ILiteREPLExecutor FetchLiteExecutor(string uuid, Func<ILiteREPLExecutor> generator)
         {
             var key = uuid ?? "";
@@ -65,6 +72,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
         {
             return _liteSessions.TryRemove(sessionId ?? "", out _);
         }
+#endif
 
         public IREPLCompiler FetchRuntimeREPLCompiler(string uuid, string runtimeDllPath, Func<string, IREPLCompiler> generator)
         {
@@ -99,8 +107,10 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
         public bool ResetSessionState(string sessionId)
         {
             var removedAny = _executors.TryRemove((sessionId ?? "", ""), out _);
+#if !CSHARPCONSOLE_LITE_DISABLED
             if (_liteExecutors.TryRemove(sessionId ?? "", out _)) removedAny = true;
             if (_liteSessions.TryRemove(sessionId ?? "", out _)) removedAny = true;
+#endif
             foreach (var key in _compilers.Keys)
             {
                 if (string.Equals(key.uuid, sessionId, StringComparison.Ordinal)
@@ -142,6 +152,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
                 state.hasCompiler = true;
             }
 
+#if !CSHARPCONSOLE_LITE_DISABLED
             foreach (var sessionId in _liteExecutors.Keys)
             {
                 if (string.IsNullOrEmpty(sessionId)) continue;
@@ -153,6 +164,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
                 if (string.IsNullOrEmpty(sessionId)) continue;
                 GetOrCreateState(states, sessionId).hasCompiler = true;
             }
+#endif
 
             return states.Values.OrderBy(state => state.sessionId, StringComparer.Ordinal).ToList();
         }
@@ -166,7 +178,9 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
                     _compilers.TryRemove(key, out _);
                 }
             }
+#if !CSHARPCONSOLE_LITE_DISABLED
             _liteSessions.TryRemove(sessionId ?? "", out _);
+#endif
         }
 
         private static SessionStateInfo GetOrCreateState(Dictionary<string, SessionStateInfo> states, string sessionId)
@@ -183,9 +197,13 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
         public void ClearAll()
         {
             _executors.Clear();
+#if !CSHARPCONSOLE_LITE_DISABLED
             _liteExecutors.Clear();
+#endif
             _compilers.Clear();
+#if !CSHARPCONSOLE_LITE_DISABLED
             _liteSessions.Clear();
+#endif
             _lastAccessTimes.Clear();
         }
 
@@ -222,6 +240,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
 
     }
 
+#if !CSHARPCONSOLE_LITE_DISABLED
     internal sealed class LiteEditorSession
     {
         public ILiteCompiler Compiler { get; }
@@ -244,4 +263,5 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
             Registry = new SessionTypeRegistry();
         }
     }
+#endif
 }

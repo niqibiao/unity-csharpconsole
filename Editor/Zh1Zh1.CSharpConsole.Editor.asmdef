@@ -2,7 +2,8 @@
     "name": "Zh1Zh1.CSharpConsole.Editor",
     "rootNamespace": "Zh1Zh1.CSharpConsole",
     "references": [
-        "Zh1Zh1.CSharpConsole.Runtime"
+        "Zh1Zh1.CSharpConsole.Runtime",
+        "Zh1Zh1.CSharpConsole.Lite"
     ],
     "includePlatforms": [
         "Editor"

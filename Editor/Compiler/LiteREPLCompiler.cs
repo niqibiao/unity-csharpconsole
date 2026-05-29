@@ -1,3 +1,4 @@
+#if !CSHARPCONSOLE_LITE_DISABLED
 // Lite-mode editor compiler — takes user C# text, runs Roslyn to AST/semantic,
 // translates to a System.Linq.Expressions tree, returns LambdaExpression that
 // can be (a) compiled in-editor via .Compile() for editor-target diagnostics,
@@ -3302,3 +3303,4 @@ namespace Zh1Zh1.CSharpConsole.Lite
         }
     }
 }
+#endif

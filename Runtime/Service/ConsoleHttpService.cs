@@ -10,7 +10,9 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Zh1Zh1.CSharpConsole.Interface;
+#if !CSHARPCONSOLE_LITE_DISABLED
 using Zh1Zh1.CSharpConsole.Lite;
+#endif
 using Zh1Zh1.CSharpConsole.Service.Commands.Routing;
 using Zh1Zh1.CSharpConsole.Service.Endpoints;
 using Zh1Zh1.CSharpConsole.Service.Internal;
@@ -32,7 +34,9 @@ namespace Zh1Zh1.CSharpConsole.Service
         private static Func<IREPLCompiler> s_EditorREPLCompilerGenerator;
         private static Func<IREPLExecutor> s_RuntimeREPLExecutorGenerator;
         private static Func<string, IREPLCompiler> s_RuntimeREPLCompilerGenerator;
+#if !CSHARPCONSOLE_LITE_DISABLED
         private static Func<ILiteCompiler> s_LiteCompilerGenerator;
+#endif
 
         private static HttpListener s_Listener;
         private static bool s_Initialized;
@@ -57,9 +61,13 @@ namespace Zh1Zh1.CSharpConsole.Service
                 WriteEnvelopeResponseAsync,
                 sessionId => s_ReplServiceRegistry.FetchEditorREPLCompiler(sessionId, s_EditorREPLCompilerGenerator),
                 (sessionId, runtimeDllPath) => s_ReplServiceRegistry.FetchRuntimeREPLCompiler(sessionId, runtimeDllPath, s_RuntimeREPLCompilerGenerator),
+#if !CSHARPCONSOLE_LITE_DISABLED
                 sessionId => s_LiteCompilerGenerator != null
                     ? s_ReplServiceRegistry.FetchLiteSession(sessionId, s_LiteCompilerGenerator).Compiler as IREPLCompletionProvider
                     : null);
+#else
+                sessionId => null);
+#endif
             s_HealthEndpointHandler ??= new HealthEndpointHandler(s_Dependencies);
             s_CommandEndpointHandler ??= new CommandEndpointHandler(s_Dependencies);
             s_BatchEndpointHandler ??= new BatchEndpointHandler(s_Dependencies);
@@ -68,14 +76,23 @@ namespace Zh1Zh1.CSharpConsole.Service
 #endif
         }
 
-        public static void InitializeForEditor( Func<IREPLCompiler> editorCompilerGenerator, Func<IREPLExecutor> editorExecutorGenerator, Func<string, IREPLCompiler> runtimeCompilerGenerator, Func<ILiteCompiler> liteCompilerGenerator)
+        public static void InitializeForEditor(
+            Func<IREPLCompiler> editorCompilerGenerator,
+            Func<IREPLExecutor> editorExecutorGenerator,
+            Func<string, IREPLCompiler> runtimeCompilerGenerator
+#if !CSHARPCONSOLE_LITE_DISABLED
+            , Func<ILiteCompiler> liteCompilerGenerator
+#endif
+            )
         {
 #if UNITY_EDITOR
             MainThreadRequestRunner.InitializeEditor();
             s_EditorREPLCompilerGenerator = editorCompilerGenerator ?? throw new ArgumentNullException(nameof(editorCompilerGenerator));
             s_EditorREPLExecutorGenerator = editorExecutorGenerator ?? throw new ArgumentNullException(nameof(editorExecutorGenerator));
             s_RuntimeREPLCompilerGenerator = runtimeCompilerGenerator ?? throw new ArgumentNullException(nameof(runtimeCompilerGenerator));
+#if !CSHARPCONSOLE_LITE_DISABLED
             s_LiteCompilerGenerator = liteCompilerGenerator ?? throw new ArgumentNullException(nameof(liteCompilerGenerator));
+#endif
             InitializeInternal();
 #else
             throw new InvalidOperationException("InitializeForEditor can only be called in the Unity Editor.");
@@ -561,7 +578,12 @@ namespace Zh1Zh1.CSharpConsole.Service
             }
             // LiteREPLExecutor ships with the package, so a player without
             // HybridCLR is always Lite-capable.
+#if !CSHARPCONSOLE_LITE_DISABLED
             return "lite";
+#else
+            // Lite compiled out — no Lite executor available on this player.
+            return "";
+#endif
         }
 #endif
 
@@ -1218,10 +1240,12 @@ namespace Zh1Zh1.CSharpConsole.Service
 
                     result = await ForwardReset(targetIP, targetPort, uuid);
                 }
+#if !CSHARPCONSOLE_LITE_DISABLED
                 else if (executorMode == "lite")
                 {
                     result = await CompileAndForwardLiteAsync(uuid, code, defaultUsing, targetIP, targetPort);
                 }
+#endif
                 else
                 {
                     var compiler = s_ReplServiceRegistry.FetchRuntimeREPLCompiler(uuid, runtimeDllPath, s_RuntimeREPLCompilerGenerator);
@@ -1303,6 +1327,7 @@ namespace Zh1Zh1.CSharpConsole.Service
             return await PostToPlayer(ip, port, request, "DLL");
         }
 
+#if !CSHARPCONSOLE_LITE_DISABLED
         // Editor-side Lite compile + forward. Per Docs~/ExpressionInterpreterFeasibility_zh.md
         // §3.1: editor runs Roslyn -> Expression -> hand-rolled binary; player
         // just decodes and interprets. Single-flight per session is enforced by
@@ -1444,6 +1469,7 @@ namespace Zh1Zh1.CSharpConsole.Service
                 return (ConsoleLog.Format($"Forward failed: {ex}"), false, false, false);
             }
         }
+#endif
 
         private static async Task<string> ForwardReset(string ip, string port, string uuid)
         {
@@ -1576,13 +1602,17 @@ namespace Zh1Zh1.CSharpConsole.Service
                 if (req.reset)
                 {
                     s_ReplServiceRegistry.RemoveExecutor(uuid);
+#if !CSHARPCONSOLE_LITE_DISABLED
                     s_ReplServiceRegistry.RemoveLiteExecutor(uuid);
+#endif
                     response = s_EnvelopeFactory.CreateTextEnvelope("execute", "Reset Success!", uuid);
                 }
+#if !CSHARPCONSOLE_LITE_DISABLED
                 else if (!string.IsNullOrEmpty(req.bodyBinary))
                 {
                     response = await ProcessLiteExecute(req, uuid);
                 }
+#endif
                 else
                 {
                     var dllBase64 = req.dllBase64 ?? "";
@@ -1614,6 +1644,7 @@ namespace Zh1Zh1.CSharpConsole.Service
             await WriteEnvelopeResponseAsync(context, response, "Execute");
         }
 
+#if !CSHARPCONSOLE_LITE_DISABLED
         private static async Task<HttpResponseEnvelope> ProcessLiteExecute(ExecuteREPLRequest req, string uuid)
         {
             try
@@ -1630,7 +1661,7 @@ namespace Zh1Zh1.CSharpConsole.Service
 
                 var outcome = await MainThreadRequestRunner.RunOnMainThreadAsync(async () =>
                 {
-                    var executor = s_ReplServiceRegistry.FetchLiteExecutor(uuid, () => new LiteREPLExecutor());
+                    var executor = s_ReplServiceRegistry.FetchLiteExecutor(uuid, () => new LiteREPLExecutor(ConsoleLog.Warning, ConsoleLog.Format));
                     return await executor.ExecuteAsync(bodyBytes, req.typeReg, req.registryEpoch);
                 });
 
@@ -1669,5 +1700,6 @@ namespace Zh1Zh1.CSharpConsole.Service
             return s_EnvelopeFactory.CreateEnvelope(false, "execute", "runtime_error",
                 errorCode, uuid, JsonUtility.ToJson(data));
         }
+#endif
     }
 }

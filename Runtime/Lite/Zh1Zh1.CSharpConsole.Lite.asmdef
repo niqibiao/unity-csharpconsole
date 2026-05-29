@@ -1,9 +1,7 @@
 {
-    "name": "Zh1Zh1.CSharpConsole.Runtime",
-    "rootNamespace": "Zh1Zh1.CSharpConsole",
-    "references": [
-        "Zh1Zh1.CSharpConsole.Lite"
-    ],
+    "name": "Zh1Zh1.CSharpConsole.Lite",
+    "rootNamespace": "Zh1Zh1.CSharpConsole.Lite",
+    "references": [],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
@@ -11,7 +9,8 @@
     "precompiledReferences": [],
     "autoReferenced": false,
     "defineConstraints": [
-        "DEVELOPMENT_BUILD || UNITY_EDITOR"
+        "DEVELOPMENT_BUILD || UNITY_EDITOR",
+        "!CSHARPCONSOLE_LITE_DISABLED"
     ],
     "versionDefines": [],
     "noEngineReferences": false

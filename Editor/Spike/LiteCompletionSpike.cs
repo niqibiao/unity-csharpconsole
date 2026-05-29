@@ -1,3 +1,4 @@
+#if !CSHARPCONSOLE_LITE_DISABLED
 // LiteCompletionSpike.cs
 //
 // Verifies that LiteREPLCompiler's IREPLCompletionProvider implementation
@@ -115,3 +116,4 @@ namespace Zh1Zh1.CSharpConsole.EditorSpike
         }
     }
 }
+#endif

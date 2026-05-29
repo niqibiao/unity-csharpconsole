@@ -24,6 +24,18 @@ namespace Zh1Zh1.CSharpConsole.Lite
     {
         private readonly Dictionary<string, object> m_Slots = new(StringComparer.Ordinal);
         private readonly SessionTypeRegistry m_TypeReg = new();
+        private readonly Action<string> m_Warn;
+        private readonly Func<string, string> m_Format;
+
+        // Logging is injected as delegates so this leaf assembly never references
+        // ConsoleLog (which lives in the always-on main Runtime assembly). The
+        // player-side service wires ConsoleLog.Warning / ConsoleLog.Format in at
+        // construction — keeps the Lite assembly free of any Runtime dependency.
+        public LiteREPLExecutor(Action<string> warn, Func<string, string> format)
+        {
+            m_Warn = warn ?? throw new ArgumentNullException(nameof(warn));
+            m_Format = format ?? throw new ArgumentNullException(nameof(format));
+        }
 
         public async Task<LiteExecuteOutcome> ExecuteAsync(byte[] bodyBinary,
             TypeRegEntryDto[] typeRegDelta,
@@ -118,7 +130,7 @@ namespace Zh1Zh1.CSharpConsole.Lite
             }
             catch (LiteWireException ex)
             {
-                ConsoleLog.Warning($"Lite execute LiteWireException [{ex.ErrorCode}]: {ex.Message}\n{ex.StackTrace}");
+                m_Warn($"Lite execute LiteWireException [{ex.ErrorCode}]: {ex.Message}\n{ex.StackTrace}");
                 return new LiteExecuteOutcome
                 {
                     ErrorCode = ex.ErrorCode,
@@ -130,21 +142,21 @@ namespace Zh1Zh1.CSharpConsole.Lite
             catch (System.Reflection.TargetInvocationException ex)
             {
                 var inner = ex.InnerException;
-                ConsoleLog.Warning($"Lite execute target invocation: {inner?.Message}\n{inner?.StackTrace}");
+                m_Warn($"Lite execute target invocation: {inner?.Message}\n{inner?.StackTrace}");
                 return new LiteExecuteOutcome
                 {
                     ErrorCode = "E_LITE_EXEC_ERROR",
-                    Result = ConsoleLog.Format($"Execution error: {inner?.Message}"),
+                    Result = m_Format($"Execution error: {inner?.Message}"),
                     ServerEpoch = m_TypeReg.Epoch
                 };
             }
             catch (Exception ex)
             {
-                ConsoleLog.Warning($"Lite execute exception: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
+                m_Warn($"Lite execute exception: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
                 return new LiteExecuteOutcome
                 {
                     ErrorCode = "E_LITE_EXEC_ERROR",
-                    Result = ConsoleLog.Format($"Lite execute error: {ex.Message}"),
+                    Result = m_Format($"Lite execute error: {ex.Message}"),
                     ServerEpoch = m_TypeReg.Epoch
                 };
             }

@@ -83,10 +83,12 @@ REPL service 在监听线程接收请求，通过 `MainThreadRequestRunner` 把 
 
 ## 4. 文件清单（按层）
 
-### 4.1 Runtime/Lite/（新增，独立目录 + 独立命名空间 `Zh1Zh1.CSharpConsole.Lite`）
+### 4.1 Runtime/Lite/（新增，独立目录 + 独立命名空间 `Zh1Zh1.CSharpConsole.Lite` + 独立 asmdef）
 
 | 文件 | LOC | 职责 |
 |---|---|---|
+| `Zh1Zh1.CSharpConsole.Lite.asmdef` | — | 独立程序集（包的依赖叶子，`references: []`，`autoReferenced: false`）。define 约束 `DEVELOPMENT_BUILD \|\| UNITY_EDITOR` **且** `!CSHARPCONSOLE_LITE_DISABLED`。`Runtime` 和 `Editor` 各自**直接**引用它（asmdef 引用不传递） |
+| `AssemblyInfo.cs` | 10 | `[InternalsVisibleTo]` 授权给 `Runtime` + `Editor`，使拆分后 Lite 的 `internal` 类型对这两个兄弟程序集保持拆分前同一程序集时的可见性，而不抬升为 public（不扩大包公共 API 面） |
 | `LiteWireProtocol.cs` | 152 | `NodeKind`(23) / `UnaryOp`(20) / `BinaryOp`(36) / `ValueKind`(16) 枚举 + `PROTOCOL_VERSION = 1` |
 | `LiteWireWriter.cs` | 762 | Expression → binary，含 method/conversion/lifted 全保真，varint 编码 typeId |
 | `LiteWireReader.cs` | 604 | binary → Expression，`Expression.MakeBinary/MakeUnary` 重载选择，user-defined operator 路径 |
@@ -96,6 +98,15 @@ REPL service 在监听线程接收请求，通过 `MainThreadRequestRunner` 把 
 | `LiteREPLExecutor.cs` | 150 | Player 侧实现：epoch 校验 → typeReg ingest → reader.ReadRoot → `lambda.Compile(preferInterpretation:true)` → `DynamicInvoke` |
 | `ILiteCompiler.cs` | 22 | Editor 侧编译器接口（Runtime 看见的最小契约，避免 Runtime 反向引用 Editor） |
 | `LiteContracts.cs` | 36 | `TypeRegEntryDto`（wire DTO，public）+ `LiteExecuteResponseData`（Lite path envelope payload，internal） |
+
+**程序集拓扑（拆分后）**：`Editor` → `Runtime` + `Lite`；`Runtime` → `Lite`；`Lite` → 无内部引用（纯叶子）。拆分浮现两处原本靠"同一程序集"成立的耦合，均已修复：
+
+1. **`LiteREPLExecutor` 用 `ConsoleLog`** —— `ConsoleLog.cs` 留在常驻 `Runtime/`（它是包级日志工具，非 Lite 代码），`LiteREPLExecutor` 构造函数改收**注入的委托** `Action<string> warn` + `Func<string,string> format`（依赖倒置）。`ConsoleHttpService` 在构造点传 `ConsoleLog.Warning` / `ConsoleLog.Format`。这样 Lite 叶子对 `Runtime` **零依赖**，且不重复 logger（单一事实源）。
+2. **`ConsoleHttpService` 用 `internal` 的 `LiteExecuteResponseData`** —— `AssemblyInfo.cs` 的 `[InternalsVisibleTo]` 恢复跨边界访问。
+
+**编译期可选（compile-out）**：消费方在 Player Settings 加 scripting define `CSHARPCONSOLE_LITE_DISABLED`，即可把整个 Lite 程序集编译掉，HybridCLR 主路径完好。实现：Lite asmdef 加 `!CSHARPCONSOLE_LITE_DISABLED` 否定约束；`Runtime`/`Editor` 所有 Lite 引用点用 `#if !CSHARPCONSOLE_LITE_DISABLED` 守卫（路由分支、registry 的 `_lite*` 成员与片段、`ProcessLiteExecute`/`CompileAndForwardLiteAsync`/`PostLiteToPlayerAsync`、`InitializeForEditor` 的条件第 4 参数、`ExecuteREPLRequest.typeReg` 字段、整文件守卫的 `LiteREPLCompiler.cs` 与 `Editor/Spike/*`）。`#if` 在类型解析前删码，是唯一能配合 asmdef 移除做到"类型不存在也能编译"的工具（`[Conditional]` 只删调用、不删类型引用，做不到）。
+
+**验证**：batchmode dev player build（IL2CPP，editor + player 两套程序集集）两态皆 `result=Succeeded errors=0`——默认（Lite 开）零回归；定义 `CSHARPCONSOLE_LITE_DISABLED` 后 `Library/ScriptAssemblies` 只剩 `Editor.dll` + `Runtime.dll`（Lite.dll 被排除），editor 与 runtime 干净编译。**零行为变化、零公共 API 变化、零协议变化**（注入是内部构造函数；compile-out 是消费方可选 define）。
 
 ### 4.2 Editor/Compiler/（新增）
 

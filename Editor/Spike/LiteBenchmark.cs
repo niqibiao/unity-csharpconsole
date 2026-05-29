@@ -1,3 +1,4 @@
+#if !CSHARPCONSOLE_LITE_DISABLED
 // P1-6 performance baseline: BCL interpreter vs Roslyn-JIT for the same
 // hot loop expression. Provides the "Lite on Editor Mono" path (B) so the
 // caller can compare against editor-mode Roslyn (A) and Player IL2CPP
@@ -71,3 +72,4 @@ namespace Zh1Zh1.CSharpConsole.EditorSpike
             " sw.Elapsed.TotalMilliseconds";
     }
 }
+#endif
