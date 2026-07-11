@@ -7,7 +7,8 @@ PluginImporter:
   serializedVersion: 2
   iconMap: {}
   executionOrder: {}
-  defineConstraints: []
+  defineConstraints:
+  - '!CSHARPCONSOLE_EXTERNAL_ROSLYN'
   isPreloaded: 0
   isOverridable: 0
   isExplicitlyReferenced: 0
