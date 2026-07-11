@@ -2,7 +2,7 @@ namespace Zh1Zh1.CSharpConsole.Service
 {
     public static class ConsoleServiceConfig
     {
-        public const string PackageVersion = "2.0.3";
+        public const string PackageVersion = "2.0.4";
         public const int ProtocolVersion = 1;
 
         public static int MainThreadTimeoutMs { get; set; } = 30_000;

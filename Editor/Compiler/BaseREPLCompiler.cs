@@ -25,7 +25,7 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
     /// </summary>
     public class BaseREPLCompiler : IREPLCompiler, IREPLCompletionProvider
     {
-        public const int MAX_SUBMISSION_ID = IREPLExecutor.MAX_SUBMISSION_ID;
+        public const int MAX_SUBMISSION_ID = REPLExecutorLimits.MAX_SUBMISSION_ID;
 
         private readonly string m_AssemblyPrefix;
         private readonly bool m_CacheReferences;

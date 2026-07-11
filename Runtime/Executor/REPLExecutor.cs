@@ -11,7 +11,7 @@ namespace Zh1Zh1.CSharpConsole.Executor
     /// </summary>
     public class REPLExecutor : IREPLExecutor
     {
-        private readonly object[] m_SubmissionArray = new object[IREPLExecutor.MAX_SUBMISSION_ID + 1];
+        private readonly object[] m_SubmissionArray = new object[REPLExecutorLimits.MAX_SUBMISSION_ID + 1];
 
         public async Task<object> ExecuteAsync(byte[] assemblyBytes, string scriptClassName)
         {

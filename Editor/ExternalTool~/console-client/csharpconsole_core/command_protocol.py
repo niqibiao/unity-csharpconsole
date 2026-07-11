@@ -1,9 +1,8 @@
 import json
 import time
 
-import requests
-
 from .models import make_result, new_run_id
+from .transport_http import TransportError
 
 
 def _coerce_args_json(raw_args):
@@ -67,7 +66,7 @@ def request_command(post_json_func, parse_command_http_response, current_mode_na
             run_id=run_id,
             duration_ms=(time.time() - start) * 1000,
         )
-    except requests.RequestException as e:
+    except TransportError as e:
         return make_result(
             ok=False,
             stage="command",

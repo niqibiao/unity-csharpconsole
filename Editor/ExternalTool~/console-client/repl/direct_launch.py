@@ -2,9 +2,9 @@ import json
 import os
 import re
 import subprocess
+import urllib.error
+import urllib.request
 from datetime import datetime
-
-import requests
 
 from .config import DEFAULT_EDITOR_PORT, DEFAULT_LOOPBACK_HOST
 
@@ -155,13 +155,21 @@ def list_listening_ports_for_pid(pid):
 
 def probe_editor_health(host, port, timeout_seconds=1.0):
     url = f"http://{host}:{port}/CSharpConsole/health"
+    request = urllib.request.Request(
+        url,
+        data=b"{}",
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
     try:
-        response = requests.post(url, json={}, headers={"Content-Type": "application/json"}, timeout=timeout_seconds)
-        if response.status_code != 200:
-            return {"ok": False, "status": response.status_code}
-        return {"ok": True}
-    except requests.RequestException as ex:
-        return {"ok": False, "error": str(ex)}
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            if response.getcode() != 200:
+                return {"ok": False, "status": response.getcode()}
+            return {"ok": True}
+    except urllib.error.HTTPError as ex:
+        return {"ok": False, "status": ex.code}
+    except OSError as ex:
+        return {"ok": False, "error": str(getattr(ex, "reason", ex))}
 
 
 def is_valid_console_port(port):
