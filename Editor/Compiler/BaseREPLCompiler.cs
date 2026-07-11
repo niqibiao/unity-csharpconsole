@@ -188,7 +188,7 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
 
             if (!string.IsNullOrEmpty(extraUsings))
             {
-                var extraUsingLines = extraUsings.Split("\n");
+                var extraUsingLines = extraUsings.Split('\n');
                 foreach (var u in extraUsingLines)
                 {
                     if (!m_CachedUsingLines.Contains(u))
@@ -222,7 +222,8 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
                 foreach (var dll in Directory.GetFiles(m_RuntimeDllPath, "*.dll", SearchOption.AllDirectories))
                 {
                     var name = Path.GetFileNameWithoutExtension(dll);
-                    customDlls.TryAdd(name, dll);
+                    if (!customDlls.ContainsKey(name))
+                        customDlls.Add(name, dll);
                 }
             }
 
