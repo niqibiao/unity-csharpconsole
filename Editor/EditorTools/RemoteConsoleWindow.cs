@@ -42,8 +42,8 @@ namespace Zh1Zh1.CSharpConsole.Editor.EditorTools
         private string m_Port;
         private bool m_PrevRemoteIsEditor;
         private TaskCompletionSource<CSharpIPPort> m_Task;
-        private List<string> m_IPHistory = new();
-        private List<string> m_CompileIPHistory = new();
+        private List<string> m_IPHistory = new List<string>();
+        private List<string> m_CompileIPHistory = new List<string>();
 
         public static async Task<CSharpIPPort> ShowWindow(int editorPort, int playerPort)
         {

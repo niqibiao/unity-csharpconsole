@@ -9,14 +9,14 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
 {
     internal sealed class CommandRouter
     {
-        private readonly static object s_Lock = new();
+        private readonly static object s_Lock = new object();
         private static CommandRouter s_Instance;
         private static int s_ConfigVersion = -1;
         private static int s_DiscoveryFailedVersion = -1;
         private const double DISCOVERY_RETRY_COOLDOWN_SECONDS = 10.0;
         private static double s_DiscoveryFailedTimestamp = -1.0;
 
-        private readonly CommandRegistry m_Registry = new();
+        private readonly CommandRegistry m_Registry = new CommandRegistry();
         private readonly CommandDispatcher m_Dispatcher;
 
         private CommandRouter(Func<Func<CommandResponse>, CommandResponse> mainThreadRunner)

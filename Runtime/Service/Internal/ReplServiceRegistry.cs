@@ -8,9 +8,9 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
 {
     internal sealed class ReplServiceRegistry
     {
-        private readonly ConcurrentDictionary<(string uuid, string path), IREPLExecutor> _executors = new();
-        private readonly ConcurrentDictionary<(string uuid, string path), IREPLCompiler> _compilers = new();
-        private readonly ConcurrentDictionary<string, double> _lastAccessTimes = new();
+        private readonly ConcurrentDictionary<(string uuid, string path), IREPLExecutor> _executors = new ConcurrentDictionary<(string uuid, string path), IREPLExecutor>();
+        private readonly ConcurrentDictionary<(string uuid, string path), IREPLCompiler> _compilers = new ConcurrentDictionary<(string uuid, string path), IREPLCompiler>();
+        private readonly ConcurrentDictionary<string, double> _lastAccessTimes = new ConcurrentDictionary<string, double>();
         private const double DEFAULT_IDLE_TIMEOUT_SECONDS = 21600.0; // 6 hours
 
         public IREPLCompiler FetchEditorREPLCompiler(string uuid, Func<IREPLCompiler> generator)

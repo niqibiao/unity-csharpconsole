@@ -11,8 +11,8 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
             public CommandDescriptor descriptor;
         }
 
-        private readonly Dictionary<string, RouteEntry> _routes = new(StringComparer.Ordinal);
-        private readonly List<CommandDescriptor> _descriptors = new();
+        private readonly Dictionary<string, RouteEntry> _routes = new Dictionary<string, RouteEntry>(StringComparer.Ordinal);
+        private readonly List<CommandDescriptor> _descriptors = new List<CommandDescriptor>();
         private CommandDescriptor[] _sortedSnapshot;
 
         public void Register(CommandDescriptor descriptor, Func<CommandInvocation, CommandResponse> handler)

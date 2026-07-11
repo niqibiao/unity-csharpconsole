@@ -22,7 +22,7 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
                 return string.Empty;
             }
 
-            return string.Join(";", defines.Where(static symbol => !string.IsNullOrWhiteSpace(symbol)).Distinct());
+            return string.Join(";", defines.Where(symbol => !string.IsNullOrWhiteSpace(symbol)).Distinct());
         }
     }
 }

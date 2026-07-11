@@ -19,7 +19,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Endpoints
         public async Task Handle(HttpListenerContext context)
         {
             var message = await ConsoleHttpServiceDependencies.ReadRequestBodyAsync(context);
-            CompletionResponse responseData = new() { items = Array.Empty<CompletionItemJson>() };
+            CompletionResponse responseData = new CompletionResponse() { items = Array.Empty<CompletionItemJson>() };
 
             try
             {

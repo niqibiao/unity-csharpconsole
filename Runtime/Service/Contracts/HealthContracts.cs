@@ -61,7 +61,7 @@ namespace Zh1Zh1.CSharpConsole.Service
         public string unityVersion = "";
         public bool isCompiling;
         public bool compileFailed;
-        public RefreshOperationState operation = new();
+        public RefreshOperationState operation = new RefreshOperationState();
     }
 
     [Serializable]
@@ -81,6 +81,6 @@ namespace Zh1Zh1.CSharpConsole.Service
         public bool exitPlayModeRequested;
         public int generation;
         public string message = "";
-        public RefreshOperationState operation = new();
+        public RefreshOperationState operation = new RefreshOperationState();
     }
 }

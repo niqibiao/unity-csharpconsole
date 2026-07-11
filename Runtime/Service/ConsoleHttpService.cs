@@ -34,9 +34,9 @@ namespace Zh1Zh1.CSharpConsole.Service
 
         private static HttpListener s_Listener;
         private static bool s_Initialized;
-        private readonly static HttpClient s_HttpClient = new() { Timeout = TimeSpan.FromMilliseconds(ConsoleServiceConfig.HttpClientTimeoutMs) };
-        private readonly static ReplServiceRegistry s_ReplServiceRegistry = new();
-        private readonly static HttpEnvelopeFactory s_EnvelopeFactory = new();
+        private readonly static HttpClient s_HttpClient = new HttpClient() { Timeout = TimeSpan.FromMilliseconds(ConsoleServiceConfig.HttpClientTimeoutMs) };
+        private readonly static ReplServiceRegistry s_ReplServiceRegistry = new ReplServiceRegistry();
+        private readonly static HttpEnvelopeFactory s_EnvelopeFactory = new HttpEnvelopeFactory();
         private static ConsoleHttpServiceDependencies s_Dependencies;
         private static HealthEndpointHandler s_HealthEndpointHandler;
         private static CommandEndpointHandler s_CommandEndpointHandler;

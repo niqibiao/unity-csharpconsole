@@ -5,8 +5,8 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
     [Serializable]
     public sealed class CommandDiscoveryOptions
     {
-        private static readonly object s_Lock = new();
-        private static CommandDiscoveryOptions s_Current = new();
+        private static readonly object s_Lock = new object();
+        private static CommandDiscoveryOptions s_Current = new CommandDiscoveryOptions();
         private static ICommandAssemblyFilter s_AssemblyFilter;
         private static int s_Version;
 

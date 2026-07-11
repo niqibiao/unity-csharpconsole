@@ -118,7 +118,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             return scene.GetRootGameObjects();
         }
 
-        private static readonly Dictionary<string, Type> s_TypeCache = new(StringComparer.Ordinal);
+        private static readonly Dictionary<string, Type> s_TypeCache = new Dictionary<string, Type>(StringComparer.Ordinal);
 
         public static Type ResolveType(string typeName, out string error)
         {

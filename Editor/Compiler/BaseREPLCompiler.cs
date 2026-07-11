@@ -42,7 +42,7 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
             "using UnityEngine;",
         };
 
-        private readonly HashSet<string> m_CachedUsingLines = new(StringComparer.Ordinal);
+        private readonly HashSet<string> m_CachedUsingLines = new HashSet<string>(StringComparer.Ordinal);
 
         public BaseREPLCompiler(string assemblyPrefix, string defaultDefines, bool cacheReferences, string runtimeDllPath = null)
         {

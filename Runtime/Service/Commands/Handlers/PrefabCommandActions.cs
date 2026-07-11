@@ -269,7 +269,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public string tag = "";
             public int layer;
             public bool activeSelf;
-            public AssetTransformInfo transform = new();
+            public AssetTransformInfo transform = new AssetTransformInfo();
             public AssetComponentBrief[] components = Array.Empty<AssetComponentBrief>();
         }
 

@@ -241,7 +241,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public int layer;
             public bool activeSelf;
             public bool activeInHierarchy;
-            public TransformInfo transform = new();
+            public TransformInfo transform = new TransformInfo();
             public ComponentInfo[] components = Array.Empty<ComponentInfo>();
         }
 
