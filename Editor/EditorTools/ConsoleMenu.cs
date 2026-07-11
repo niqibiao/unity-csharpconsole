@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using Zh1Zh1.CSharpConsole.Service;
@@ -44,7 +45,7 @@ namespace Zh1Zh1.CSharpConsole.Editor.EditorTools
             var python = EnsureSupportedPython();
             if (string.IsNullOrEmpty(python))
             {
-                ConsoleLog.Error($"Python {MinPythonMajor}.{MinPythonMinor}+ not found. Please install a supported Python version and add it to your system PATH.");
+                ConsoleLog.Error($"Python {MinPythonMajor}.{MinPythonMinor}+ not found. Please install a supported Python version and add it to your user or system PATH.");
                 return;
             }
 
@@ -67,72 +68,138 @@ namespace Zh1Zh1.CSharpConsole.Editor.EditorTools
             }
 
 
-            var wt = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "WindowsApps", "wt.exe");
-            if (File.Exists(wt))
+            // 直接拉起 python（绝对路径）。不再经由 wt.exe：商店版 wt 是 app execution alias，
+            // 转发带引号子命令时会把 exe 与参数压平成单个 token，导致“找不到文件”。
+            // Unity 为 GUI 进程，直接启动 console 程序会自动分配新控制台窗口；
+            // 若系统默认终端为 Windows Terminal，该窗口仍会在 Windows Terminal 中打开。
+            Process.Start(new ProcessStartInfo
             {
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = wt,
-                    Arguments = $"--title {Q("C# Console")} -d {Q(s_ToolDir)} -- {Q(python)} {pyArgs}",
-                    UseShellExecute = false,
-                    CreateNoWindow = false
-                });
-            }
-            else
-            {
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = python,
-                    Arguments = pyArgs,
-                    WorkingDirectory = s_ToolDir,
-                    UseShellExecute = false,
-                    CreateNoWindow = false
-                });
-            }
+                FileName = python,
+                Arguments = pyArgs,
+                WorkingDirectory = s_ToolDir,
+                UseShellExecute = false,
+                CreateNoWindow = false
+            });
         }
 
         private static string Q(string s) => $"\"{s}\"";
 
         private static string EnsureSupportedPython()
         {
-            foreach (var name in new[] { "python3", "python" })
+            foreach (var exe in EnumeratePythonCandidates())
             {
-                try
+                if (TryGetSupportedPython(exe, out var resolved))
                 {
-                    var p = Process.Start(new ProcessStartInfo
-                    {
-                        FileName = name,
-                        Arguments = "--version",
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true
-                    });
-                    p?.WaitForExit(3000);
-                    if (p == null || p.ExitCode != 0)
-                    {
-                        continue;
-                    }
-
-                    var output = p.StandardOutput.ReadToEnd().Trim();
-                    if (string.IsNullOrEmpty(output))
-                    {
-                        output = p.StandardError.ReadToEnd().Trim();
-                    }
-
-                    if (TryParsePythonVersion(output, out var major, out var minor)
-                        && IsSupportedPythonVersion(major, minor))
-                    {
-                        return name;
-                    }
-                }
-                catch
-                {
-                    // not found, try next
+                    return resolved;
                 }
             }
 
             return null;
+        }
+
+        // 跨 进程PATH + user PATH(注册表) + system PATH(注册表) 收集候选 python 可执行文件的绝对路径，
+        // 返回绝对路径以兼容 user PATH，并避免 wt.exe 在自身（可能陈旧的）环境里解析裸名失败。
+        private static IEnumerable<string> EnumeratePythonCandidates()
+        {
+            var names = new[] { "python3.exe", "python.exe" };
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var dir in EnumeratePathDirectories())
+            {
+                foreach (var name in names)
+                {
+                    string full;
+                    try
+                    {
+                        full = Path.Combine(dir, name);
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+
+                    if (seen.Add(full) && File.Exists(full))
+                    {
+                        yield return full;
+                    }
+                }
+            }
+        }
+
+        private static IEnumerable<string> EnumeratePathDirectories()
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var sources = new[]
+            {
+                Environment.GetEnvironmentVariable("PATH"),
+                Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.User),
+                Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.Machine)
+            };
+
+            foreach (var src in sources)
+            {
+                if (string.IsNullOrEmpty(src))
+                {
+                    continue;
+                }
+
+                foreach (var dir in src.Split(Path.PathSeparator))
+                {
+                    var d = dir.Trim().Trim('"');
+                    // 跳过微软商店的 python 占位 alias（0 字节 reparse point，直接启动会弹商店或报找不到文件）
+                    if (d.Length == 0 || d.EndsWith("WindowsApps", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    if (seen.Add(d))
+                    {
+                        yield return d;
+                    }
+                }
+            }
+        }
+
+        private static bool TryGetSupportedPython(string exe, out string resolved)
+        {
+            resolved = null;
+
+            try
+            {
+                var p = Process.Start(new ProcessStartInfo
+                {
+                    FileName = exe,
+                    Arguments = "--version",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                });
+                p?.WaitForExit(3000);
+                if (p == null || p.ExitCode != 0)
+                {
+                    return false;
+                }
+
+                var output = p.StandardOutput.ReadToEnd().Trim();
+                if (string.IsNullOrEmpty(output))
+                {
+                    output = p.StandardError.ReadToEnd().Trim();
+                }
+
+                if (TryParsePythonVersion(output, out var major, out var minor)
+                    && IsSupportedPythonVersion(major, minor))
+                {
+                    resolved = exe;
+                    return true;
+                }
+            }
+            catch
+            {
+                // not a usable python, skip
+            }
+
+            return false;
         }
 
         private static bool IsSupportedPythonVersion(int major, int minor)
