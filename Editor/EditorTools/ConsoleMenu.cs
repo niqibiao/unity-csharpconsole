@@ -68,18 +68,30 @@ namespace Zh1Zh1.CSharpConsole.Editor.EditorTools
             }
 
 
-            // 直接拉起 python（绝对路径）。不再经由 wt.exe：商店版 wt 是 app execution alias，
-            // 转发带引号子命令时会把 exe 与参数压平成单个 token，导致“找不到文件”。
-            // Unity 为 GUI 进程，直接启动 console 程序会自动分配新控制台窗口；
-            // 若系统默认终端为 Windows Terminal，该窗口仍会在 Windows Terminal 中打开。
-            Process.Start(new ProcessStartInfo
+            // 优先用 wt.exe 让 Windows Terminal 托管 REPL（规避 prompt_toolkit 在部分 ConPTY 下的
+            // NoConsoleScreenBufferError 闪退）；wt 不存在时回退直连 python。
+            var wt = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "WindowsApps", "wt.exe");
+            if (File.Exists(wt))
             {
-                FileName = python,
-                Arguments = pyArgs,
-                WorkingDirectory = s_ToolDir,
-                UseShellExecute = false,
-                CreateNoWindow = false
-            });
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = wt,
+                    Arguments = $"--title {Q("C# Console")} -d {Q(s_ToolDir)} -- {Q(python)} {pyArgs}",
+                    // UseShellExecute=true 让 ShellExecute 解析 wt 的 app-execution alias。
+                    UseShellExecute = true
+                });
+            }
+            else
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = python,
+                    Arguments = pyArgs,
+                    WorkingDirectory = s_ToolDir,
+                    UseShellExecute = false,
+                    CreateNoWindow = false
+                });
+            }
         }
 
         private static string Q(string s) => $"\"{s}\"";
