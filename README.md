@@ -206,7 +206,7 @@ Tab completion works for both command names and argument names.
 
 ## 📋 Built-in Actions
 
-59 built-in commands across 13 namespaces, covering editor control, scene manipulation, asset management, and more.
+60 built-in commands across 13 namespaces, covering editor control, scene manipulation, asset management, and more.
 
 | Namespace | Action | Description |
 |-----------|--------|-------------|
@@ -244,6 +244,7 @@ Tab completion works for both command names and argument names.
 | | `window.open` | Open an editor window by type name |
 | | `console.clear` | Clear the editor console |
 | | `console.mark` | Write a searchable marker into the editor log and return the log file path |
+| | `console.get` | Read bounded Editor log output, optionally after a console marker |
 | **project** | `scene.list` | List all scenes in the project |
 | | `scene.open` | Open a scene by path |
 | | `scene.save` | Save the current scene |

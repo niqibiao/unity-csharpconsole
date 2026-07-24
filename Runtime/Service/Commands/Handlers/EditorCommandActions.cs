@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
 #if UNITY_EDITOR
-using System.Globalization;
-using System.IO;
 using System.Reflection;
 using UnityEditor;
 using UnityEngine;
@@ -44,16 +42,6 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public bool isPaused;
             public bool isPlayingOrWillChangePlaymode;
             public bool isCompiling;
-        }
-
-        [Serializable]
-        private sealed class ConsoleMarkResult
-        {
-            public string logPath = "";
-            public string id = "";
-            public string label = "";
-            public string timestampUtc = "";
-            public string markerText = "";
         }
 
         private enum PlaymodeLifecycleState
@@ -173,28 +161,12 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         }
 
         [CommandAction("editor", "console.mark", editorOnly: true, summary: "Write a searchable marker into the editor log and return the log file path")]
-        private static CommandResponse MarkConsole(string label = "")
-        {
-            var markerId = Guid.NewGuid().ToString("N");
-            var timestampUtc = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
-            var trimmedLabel = (label ?? "").Trim();
-            var markerText = string.IsNullOrEmpty(trimmedLabel)
-                ? $"[C#Console][ConsoleMark] id={markerId} utc={timestampUtc}"
-                : $"[C#Console][ConsoleMark] id={markerId} utc={timestampUtc} label={trimmedLabel}";
+        private static CommandResponse MarkConsole(string label = "") =>
+            EditorConsoleDiagnostics.Mark(label);
 
-            UnityEngine.Debug.Log(markerText);
-
-            var result = new ConsoleMarkResult
-            {
-                logPath = ResolveEditorLogPath(),
-                id = markerId,
-                label = trimmedLabel,
-                timestampUtc = timestampUtc,
-                markerText = markerText
-            };
-
-            return CommandResponseFactory.Ok($"Wrote console marker '{markerId}'", JsonUtility.ToJson(result));
-        }
+        [CommandAction("editor", "console.get", editorOnly: true, summary: "Read a bounded Unity Editor log window, optionally after a console marker")]
+        private static CommandResponse GetConsole(string afterMarkerId = "") =>
+            EditorConsoleDiagnostics.Get(afterMarkerId);
 
         private static string ValidatePlaymodeTransition(bool enter)
         {
@@ -339,56 +311,6 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             return true;
         }
 
-        private static string ResolveEditorLogPath()
-        {
-            try
-            {
-                if (!string.IsNullOrEmpty(Application.consoleLogPath))
-                {
-                    return Application.consoleLogPath;
-                }
-            }
-            catch
-            {
-                // Fall back to Unity's default editor log locations below.
-            }
-
-            try
-            {
-                if (Application.platform == RuntimePlatform.WindowsEditor)
-                {
-                    var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                    if (!string.IsNullOrEmpty(localAppData))
-                    {
-                        return Path.Combine(localAppData, "Unity", "Editor", "Editor.log");
-                    }
-                }
-
-                if (Application.platform == RuntimePlatform.OSXEditor)
-                {
-                    var home = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
-                    if (!string.IsNullOrEmpty(home))
-                    {
-                        return Path.Combine(home, "Library", "Logs", "Unity", "Editor.log");
-                    }
-                }
-
-                if (Application.platform == RuntimePlatform.LinuxEditor)
-                {
-                    var home = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
-                    if (!string.IsNullOrEmpty(home))
-                    {
-                        return Path.Combine(home, ".config", "unity3d", "Editor.log");
-                    }
-                }
-            }
-            catch
-            {
-                // Ignore fallback resolution failures and return empty below.
-            }
-
-            return "";
-        }
 #endif
     }
 }

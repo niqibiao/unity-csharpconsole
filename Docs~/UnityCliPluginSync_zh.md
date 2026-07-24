@@ -1,5 +1,48 @@
 # unity-cli-plugin 协议同步记录
 
+## 2026-07-24：`editor/console.get` 有界诊断读取
+
+新增只读内置命令 `editor/console.get`。接口只包含一个可选参数：
+
+```json
+{
+  "afterMarkerId": "editor/console.mark 返回的 32 位十六进制 id"
+}
+```
+
+- 省略参数时读取 Unity 2022 `Editor.log` 的最近有界窗口；
+- 传入 marker id 时只返回该 marker 记录结束后的日志；
+- marker 格式非法时返回 `validation_error`；格式正确但在最近 8 MiB 日志快照内
+  找不到时返回 `system_error`，不会退化为当前日志尾部，也不能据此重跑结果未明的
+  原操作；
+- 调用开始时固定文件长度，调用期间新增的日志不进入本次结果；
+- 不读取或修改 Unity Console 的搜索、级别、折叠、清理选项；
+- `resultJson` 的 UTF-8 大小硬限制为 16 KiB。
+
+为了让 marker 边界不可被 label 伪造，`editor/console.mark` 的 `label` 现在限制为
+单行、最多 200 个字符，并拒绝保留的 marker 前缀。
+
+成功结果固定为：
+
+```json
+{
+  "text": "按原顺序返回并统一为 LF 的日志文本",
+  "truncated": false
+}
+```
+
+`truncated=true` 表示历史尾部或 marker 后内容因固定预算被省略。调用方不能在
+该状态下声称窗口内不存在其他诊断。推荐的复杂工作流是：
+
+```text
+editor/console.mark → 执行操作 → wait-ready / diagnose
+→ editor/console.get(afterMarkerId=<mark id>)
+```
+
+该命令刻意不提供分页、正则、任意日志路径、source 选择或可调输出上限，避免把
+日志查询复杂度和无界 token 成本暴露给 Agent。`console.mark` 的 marker 格式和
+编辑器日志路径解析也已收拢到同一个内部模块。
+
 ## 2026-07-24：HTTP protocol v2 invocation 去重与诊断字段
 
 本次将 `ConsoleServiceConfig.ProtocolVersion` 从 1 升为 2，package 版本不变。
