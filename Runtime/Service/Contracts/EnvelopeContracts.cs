@@ -11,6 +11,7 @@ namespace Zh1Zh1.CSharpConsole.Service
         public string summary = "";
         public string sessionId = "";
         public string dataJson = "{}";
+        public InvocationReceipt invocation = new InvocationReceipt();
     }
 
     [Serializable]

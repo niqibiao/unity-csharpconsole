@@ -2,6 +2,16 @@ using System;
 
 namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
 {
+    internal sealed class CommandOutcomeUnknownException : TimeoutException
+    {
+        internal CommandOutcomeUnknownException(
+            string message,
+            Exception innerException = null)
+            : base(message, innerException)
+        {
+        }
+    }
+
     internal sealed class CommandDispatcher
     {
         private readonly Func<Func<CommandResponse>, CommandResponse> _mainThreadRunner;
@@ -36,6 +46,12 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
                 }
 
                 return NormalizeResponse(route.handler(invocation), invocation);
+            }
+            catch (CommandOutcomeUnknownException e)
+            {
+                return CommandResponseFactory.OutcomeUnknown(
+                    invocation,
+                    $"Command may have executed but its result is unknown: {invocation.commandNamespace}/{invocation.action}, {e.Message}");
             }
             catch (Exception e)
             {

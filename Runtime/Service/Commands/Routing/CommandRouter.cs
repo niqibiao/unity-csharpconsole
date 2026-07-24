@@ -323,7 +323,17 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
 
         private static Func<Func<CommandResponse>, CommandResponse> BuildMainThreadRunner()
         {
-            return work => MainThreadRequestRunner.RunOnMainThread(work);
+            return work =>
+            {
+                try
+                {
+                    return MainThreadRequestRunner.RunOnMainThread(work);
+                }
+                catch (MainThreadOutcomeUnknownException e)
+                {
+                    throw new CommandOutcomeUnknownException(e.Message, e);
+                }
+            };
         }
 
         private static bool ShouldRetryDiscovery()

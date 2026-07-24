@@ -20,8 +20,13 @@ namespace Zh1Zh1.CSharpConsole.Service
         public string requestedAtUtc = "";
         public string action = "";
         public string phase = "";
+        public bool triggerStarted;
         public bool compileRequested;
         public bool reloadObserved;
+        public bool exitPlayModeRequested;
+        public bool waitingForEditMode;
+        public string[] changedFiles = Array.Empty<string>();
+        public int changedFileCount;
         public int generation;
         public int effectivePort;
         public string message = "";
@@ -59,8 +64,16 @@ namespace Zh1Zh1.CSharpConsole.Service
         public string packageVersion = "";
         public int protocolVersion;
         public string unityVersion = "";
+        public string targetId = "";
+        public string serviceEpoch = "";
+        public string[] capabilities = Array.Empty<string>();
+        public bool journalWritable;
+        public int dedupeWindowSeconds;
         public bool isCompiling;
         public bool compileFailed;
+        public bool isUpdating;
+        public bool isPlaying;
+        public int mainThreadHeartbeatAgeMs;
         public RefreshOperationState operation = new RefreshOperationState();
     }
 

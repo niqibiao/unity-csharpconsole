@@ -112,22 +112,33 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 
         private static CommandResponse SetPlaymode(bool enter)
         {
-            var validationError = MainThreadRequestRunner.RunOnMainThread(() => ValidatePlaymodeTransition(enter));
-
-            if (string.IsNullOrEmpty(validationError))
+            try
             {
-                MainThreadRequestRunner.Post(() =>
+                return MainThreadRequestRunner.RunOnMainThread(() =>
                 {
+                    var validationError = ValidatePlaymodeTransition(enter);
+                    if (!string.IsNullOrEmpty(validationError))
+                    {
+                        return CommandResponseFactory.ValidationError(validationError);
+                    }
+
                     if (EditorApplication.isPlaying != enter)
                     {
                         EditorApplication.isPlaying = enter;
                     }
+
+                    // If the setter initiates a reload before this response can be
+                    // durably recorded, the invocation's started claim recovers as
+                    // outcome_unknown and is never dispatched again.
+                    return CommandResponseFactory.Ok(
+                        $"Requested {(enter ? "enter" : "exit")} playmode",
+                        "{}");
                 });
             }
-
-            return string.IsNullOrEmpty(validationError)
-                ? CommandResponseFactory.Ok($"Requested {(enter ? "enter" : "exit")} playmode", "{}")
-                : CommandResponseFactory.ValidationError(validationError);
+            catch (MainThreadOutcomeUnknownException e)
+            {
+                throw new CommandOutcomeUnknownException(e.Message, e);
+            }
         }
 
         [CommandAction("editor", "menu.open", editorOnly: true, summary: "Open a menu item by path")]

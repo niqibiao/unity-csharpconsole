@@ -24,20 +24,38 @@ def extract_project_path_from_command_line(command_line):
     return None
 
 
+def _read_project_refresh_state(project_path):
+    state_paths = (
+        os.path.join(
+            project_path,
+            "Library",
+            "CSharpConsole",
+            "RefreshState",
+            "v1",
+            "refresh_state.json",
+        ),
+        # Compatibility with package versions that persisted discovery state
+        # under the rebuildable Temp directory.
+        os.path.join(project_path, "Temp", "CSharpConsole", "refresh_state.json"),
+    )
+    for state_path in state_paths:
+        if not os.path.isfile(state_path):
+            continue
+        try:
+            with open(state_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            continue
+    return None
+
+
 def read_project_temp_state(project_path):
-    temp_dir = os.path.join(project_path, "Temp", "CSharpConsole")
-    if not os.path.isdir(temp_dir):
-        return None
+    """Compatibility name retained for callers that patch the old helper."""
+    return _read_project_refresh_state(project_path)
 
-    state_path = os.path.join(temp_dir, "refresh_state.json")
-    if not os.path.isfile(state_path):
-        return None
 
-    try:
-        with open(state_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return None
+def read_project_refresh_state(project_path):
+    return read_project_temp_state(project_path)
 
 
 def is_batchmode_worker_command_line(command_line):
@@ -181,7 +199,7 @@ def is_valid_console_port(port):
 
 
 def read_editor_port_from_project_state(project_path):
-    state = read_project_temp_state(project_path)
+    state = read_project_refresh_state(project_path)
     if not isinstance(state, dict):
         return None
 

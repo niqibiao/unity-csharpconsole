@@ -69,6 +69,18 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
             return response;
         }
 
+        internal static CommandResponse OutcomeUnknown(CommandInvocation invocation, string summary)
+        {
+            var response = new CommandResponse
+            {
+                ok = false,
+                type = "outcome_unknown",
+                summary = summary
+            };
+            ApplyInvocation(response, invocation);
+            return response;
+        }
+
         private static void ApplyInvocation(CommandResponse response, CommandInvocation invocation)
         {
             response.commandNamespace = invocation?.commandNamespace ?? "";

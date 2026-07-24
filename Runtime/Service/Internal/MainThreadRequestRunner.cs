@@ -10,9 +10,18 @@ using UnityEditor;
 
 namespace Zh1Zh1.CSharpConsole.Service.Internal
 {
+    internal sealed class MainThreadOutcomeUnknownException : TimeoutException
+    {
+        public MainThreadOutcomeUnknownException(string message)
+            : base(message)
+        {
+        }
+    }
+
     internal sealed class MainThreadRequestRunner
     {
         private const string DISPATCHER_NOT_INITIALIZED_MESSAGE = "Main-thread dispatcher is not initialized. Ensure MainThreadRequestRunner.InitializeEditor() or InitializeRuntime() is called during startup.";
+        private const int ASYNC_RUN_LOCK_WAIT_MAX_MS = 1000;
 
         private readonly static Queue<Action> s_SharedQueue = new Queue<Action>();
         private readonly static object s_SharedQueueLock = new object();
@@ -106,38 +115,40 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
             }
 
             var postToMainThread = GetPlatformPostToMainThreadOrThrow();
-
-            T result = default;
-            Exception exception = null;
-            using var done = new ManualResetEventSlim(false);
+            var lease = new ExecutionLease();
+            var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
 
             postToMainThread(() =>
             {
+                if (!lease.TryStart())
+                {
+                    completion.TrySetCanceled();
+                    return;
+                }
+
                 try
                 {
-                    result = work();
+                    var result = work();
+                    lease.MarkCompleted();
+                    completion.TrySetResult(result);
                 }
                 catch (Exception e)
                 {
-                    exception = e;
-                }
-                finally
-                {
-                    done.Set();
+                    lease.MarkCompleted();
+                    completion.TrySetException(e);
                 }
             });
 
-            if (!done.Wait(timeoutMs))
+            using var timeoutCts = new CancellationTokenSource();
+            var timeoutTask = Task.Delay(timeoutMs, timeoutCts.Token);
+            var completedTask = Task.WhenAny(completion.Task, timeoutTask).GetAwaiter().GetResult();
+            if (completedTask != completion.Task)
             {
-                throw new TimeoutException("Timeout: main thread execution timed out");
+                ThrowTimeoutForLease(lease);
             }
 
-            if (exception != null)
-            {
-                throw exception;
-            }
-
-            return result;
+            timeoutCts.Cancel();
+            return completion.Task.GetAwaiter().GetResult();
         }
 
         public static Task<T> RunOnMainThreadAsync<T>(Func<Task<T>> work)
@@ -163,14 +174,37 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
 
         private static async Task<T> RunOnMainThreadAsyncCore<T>(Func<Task<T>> work, int timeoutMs)
         {
-            await s_AsyncRunLock.WaitAsync().ConfigureAwait(false);
+            var timeoutBudget = System.Diagnostics.Stopwatch.StartNew();
+            var lockWaitMs = Math.Min(Math.Max(timeoutMs, 0), ASYNC_RUN_LOCK_WAIT_MAX_MS);
+            if (!await s_AsyncRunLock.WaitAsync(lockWaitMs).ConfigureAwait(false))
+            {
+                throw new TimeoutException(
+                    "Timeout: another asynchronous main-thread execution is still running; this request did not start");
+            }
+
+            var releaseLockNow = true;
             try
             {
+                var elapsedMs = Math.Min(timeoutBudget.ElapsedMilliseconds, int.MaxValue);
+                var remainingTimeoutMs = timeoutMs - (int)elapsedMs;
+                if (remainingTimeoutMs <= 0)
+                {
+                    throw new TimeoutException(
+                        "Timeout: the asynchronous main-thread execution did not start within its timeout budget");
+                }
+
                 var postToMainThread = GetPlatformPostToMainThreadOrThrow();
                 var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var lease = new ExecutionLease();
 
                 postToMainThread(() =>
                 {
+                    if (!lease.TryStart())
+                    {
+                        tcs.TrySetCanceled();
+                        return;
+                    }
+
                     var previousContext = SynchronizationContext.Current;
                     var bridgeContext = new MainThreadRequestRunnerSynchronizationContext(postToMainThread);
                     SynchronizationContext.SetSynchronizationContext(bridgeContext);
@@ -182,6 +216,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
                     }
                     catch (Exception e)
                     {
+                        lease.MarkCompleted();
                         tcs.TrySetException(e);
                         return;
                     }
@@ -192,14 +227,48 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
 
                     if (task == null)
                     {
+                        lease.MarkCompleted();
                         tcs.TrySetResult(default);
                         return;
                     }
 
-                    _ = CompleteAsyncWork(task, tcs);
+                    _ = CompleteAsyncWork(task, tcs, lease);
                 });
 
-                return await AwaitWithTimeoutAsync(tcs.Task, timeoutMs).ConfigureAwait(false);
+                try
+                {
+                    return await AwaitWithTimeoutAsync(tcs.Task, remainingTimeoutMs, lease).ConfigureAwait(false);
+                }
+                catch (MainThreadOutcomeUnknownException) when (!tcs.Task.IsCompleted)
+                {
+                    // The caller must receive the unknown outcome immediately,
+                    // but the underlying async Unity work is still running.
+                    // Keep the serialization lock until that work actually
+                    // settles so a later request cannot overlap the same
+                    // executor/session.
+                    releaseLockNow = false;
+                    _ = ReleaseAsyncRunLockWhenCompleted(tcs.Task);
+                    throw;
+                }
+            }
+            finally
+            {
+                if (releaseLockNow)
+                {
+                    s_AsyncRunLock.Release();
+                }
+            }
+        }
+
+        private static async Task ReleaseAsyncRunLockWhenCompleted(Task task)
+        {
+            try
+            {
+                await task.ConfigureAwait(false);
+            }
+            catch
+            {
+                // The original request owns result/error reporting.
             }
             finally
             {
@@ -374,15 +443,17 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
             }
         }
 
-        private static async Task CompleteAsyncWork<T>(Task<T> task, TaskCompletionSource<T> tcs)
+        private static async Task CompleteAsyncWork<T>(Task<T> task, TaskCompletionSource<T> tcs, ExecutionLease lease)
         {
             try
             {
                 var result = await task;
+                lease.MarkCompleted();
                 tcs.TrySetResult(result);
             }
             catch (OperationCanceledException e)
             {
+                lease.MarkCompleted();
                 if (task.IsCanceled)
                 {
                     tcs.TrySetCanceled();
@@ -393,22 +464,59 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
             }
             catch (Exception e)
             {
+                lease.MarkCompleted();
                 tcs.TrySetException(e);
             }
         }
 
-        private static async Task<T> AwaitWithTimeoutAsync<T>(Task<T> task, int timeoutMs)
+        private static async Task<T> AwaitWithTimeoutAsync<T>(Task<T> task, int timeoutMs, ExecutionLease lease)
         {
             using var timeoutCts = new CancellationTokenSource();
             var timeoutTask = Task.Delay(timeoutMs, timeoutCts.Token);
             var completedTask = await Task.WhenAny(task, timeoutTask).ConfigureAwait(false);
             if (completedTask != task)
             {
-                throw new TimeoutException("Timeout: main thread execution timed out");
+                ThrowTimeoutForLease(lease);
             }
 
             timeoutCts.Cancel();
             return await task.ConfigureAwait(false);
+        }
+
+        private static void ThrowTimeoutForLease(ExecutionLease lease)
+        {
+            if (lease != null && lease.TryCancelBeforeStart())
+            {
+                throw new TimeoutException("Timeout: main thread execution was canceled before it started");
+            }
+
+            throw new MainThreadOutcomeUnknownException(
+                "Main-thread execution exceeded the timeout after it may have started; the outcome is unknown");
+        }
+
+        private sealed class ExecutionLease
+        {
+            private const int Pending = 0;
+            private const int Started = 1;
+            private const int Completed = 2;
+            private const int Canceled = 3;
+
+            private int _state = Pending;
+
+            public bool TryStart()
+            {
+                return Interlocked.CompareExchange(ref _state, Started, Pending) == Pending;
+            }
+
+            public bool TryCancelBeforeStart()
+            {
+                return Interlocked.CompareExchange(ref _state, Canceled, Pending) == Pending;
+            }
+
+            public void MarkCompleted()
+            {
+                Interlocked.Exchange(ref _state, Completed);
+            }
         }
 
         private sealed class MainThreadRequestRunnerSynchronizationContext : SynchronizationContext

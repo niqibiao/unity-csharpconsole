@@ -1,0 +1,191 @@
+# unity-cli-plugin 协议同步记录
+
+## 2026-07-24：HTTP protocol v2 invocation 去重与诊断字段
+
+本次将 `ConsoleServiceConfig.ProtocolVersion` 从 1 升为 2，package 版本不变。
+
+### at-most-once 请求
+
+以下 JSON mutation endpoint 支持同一 target 内、24 小时窗口的持久化
+at-most-once：
+
+- `/command`
+- `/batch`（整批共用一个 invocation id）
+- `/editor`
+- `/compile`
+- `/editor-compile`
+- `/runtime-compile`
+- `/refresh`
+- `/execute`
+
+客户端通过通用 HTTP header 发送：
+
+- `X-CSharpConsole-Invocation-Id`: UUID
+- `X-CSharpConsole-Target-Id`: 当前 `/health` 返回的 `targetId`
+
+两个 header 必须同时存在。都不存在时保持 protocol v1 的兼容执行，但 response
+receipt 的 `guarantee` 为 `none`。只传一个 header、UUID 非法、target 不匹配或
+journal 不可写时，server 会在执行前 fail closed。
+
+server 使用 `targetId + endpoint + 原始 UTF-8 body bytes 的 SHA-256` 作为
+invocation fingerprint。同一个 UUID：
+
+- fingerprint 相同且已完成：重放持久化 response，不重复执行；
+- 正在执行：返回 `operation_in_progress`；
+- 上次执行在完成结果落盘前中断：返回 `outcome_unknown`，不重复执行；
+- fingerprint 不同：返回 `invocation_conflict`。
+
+结果会先持久化，再写 HTTP socket。Editor ledger 位于
+`Library/CSharpConsole/InvocationLedger/v1`；development Player ledger 位于
+`Application.persistentDataPath/CSharpConsole/InvocationLedger/v1`。Player 使用
+按进程区分的 `identities/<pid>-<process-start>.json`，并把 invocation record
+写入 `targets/<targetId>/`；因此共享 `persistentDataPath` 的并发 Player 不会争用
+identity，也不会因使用相同 UUID 而互相冲突。Player target 的生命周期等于进程
+生命周期：新进程不会冒充旧 target 查询或重放旧结果；死亡进程的 identity 与
+target ledger 在 24 小时去重窗口结束后由存活 Player 做尽力清理。
+
+Editor 的受保护 `/compile` 转发到 development Player `/execute` 时，第二跳也
+受 protocol v2 保护。Editor 先读取 Player `/health`，确认它是已初始化的
+Unity 2022 Player、journal 可写、主线程 heartbeat 正常并具有四个可靠性
+capability；然后由 parent invocation UUID、`player/execute` 和动作标签稳定派生
+child invocation UUID，并对实际 UTF-8 body 计算 digest。Player response 必须带
+匹配 child UUID、target、endpoint、digest、去重窗口和 `at-most-once` receipt。
+连接或读取失败、receipt 不一致，以及 child `outcome_unknown`、
+`operation_in_progress` 或 conflict 都会把 parent 返回为 `outcome_unknown`，
+不会换 child id 重发。明确的 protected rejection 表示本次 Player 副作用确定未
+执行。
+
+### response receipt
+
+所有 `HttpResponseEnvelope` 新增 `invocation`：
+
+- `invocationId`
+- `targetId`
+- `serviceEpoch`
+- `endpoint`
+- `requestDigest`
+- `state`
+- `guarantee`（`at-most-once` 或 `none`）
+- `replayed`
+- `dedupeWindowSeconds`
+- `createdAtUtc`
+- `updatedAtUtc`
+
+### invocation 状态查询
+
+新增 `POST /CSharpConsole/invocation-status`，body：
+
+```json
+{
+  "invocationId": "UUID",
+  "targetId": "health 返回的 targetId"
+}
+```
+
+`targetId` 也可以通过 `X-CSharpConsole-Target-Id` 发送；body 与 header 同时存在
+时必须一致。完成状态的 `dataJson.responseJson` 包含可恢复的原始 response
+envelope。状态查询也会即时检查 24 小时窗口；过期 record 会在本次查询中删除并
+返回 `state=protection_expired`、`protectionExpired=true` 与 `previousState`，
+不会在维护定时器尚未运行时继续声称受保护。
+
+### health v2
+
+`/health` 的 `dataJson` 新增：
+
+- `targetId`：Editor 使用规范化 project root 的 SHA-256 前 24 位，
+  格式为 `editor-<24 hex>`；development Player 在同一进程内的 service 重启时
+  复用 target，新进程获得新 target；同一 `persistentDataPath` 下的并发 Player
+  使用各自独立的 target ledger；
+- `serviceEpoch`：每次 service 初始化生成；domain reload 后会变化；
+- `capabilities`：`invocation_headers`、`invocation_receipts`、
+  `invocation_status`、`at_most_once`；
+- `journalWritable`
+- `dedupeWindowSeconds`
+- `isUpdating`
+- `isPlaying`
+- `mainThreadHeartbeatAgeMs`
+
+CLI 必须先读取 health target，再为 mutation 生成新的 invocation UUID；遇到连接
+超时或 reset 时只能使用同一个 UUID 重试或查询状态，不能用新 UUID 盲重试。
+Editor 的本地 `identity.json` 同时记录 `projectRoot`；CLI 只有在该路径解析后与
+当前项目根一致时才可用它处理 junction/symlink，不能信任从其他项目复制来的
+`Library` identity。
+
+### refresh readiness 收紧
+
+`RefreshOperationState` 新增 `triggerStarted`、`exitPlayModeRequested`、
+`waitingForEditMode`、内部恢复用的 `changedFiles` 和公开计数
+`changedFileCount`。`/refresh` 现在先持久化 invocation acceptance，再退出
+Play Mode 或把 refresh 排入主线程；若 acceptance 无法落盘，refresh 不会启动。
+已有 refresh 正在执行时，新请求返回 `ok=false`、`accepted=false`，其
+`changedFiles` 不会被假定已合并。请求 body 的读取、JSON 解析和路径校验都发生
+在 acceptance 之前；坏请求只会拒绝本次调用，不会改写已有 refresh operation。
+
+refresh 状态文件也属于 acceptance 边界：状态的 durable write 成功后才会发布到
+`/health`、清空 session 或返回 `accepted=true`。因此 `accepted=true` 只表示
+refresh 意图已可靠接收，最终结果仍须按对应 `opId` / `generation` 等待。
+
+主线程执行 refresh 时，会先可靠写入 `triggerStarted=true`，之后才允许退出
+Play Mode、调用 `AssetDatabase.Refresh` 或导入指定资源。该写入失败时不会触发
+任何上述操作，operation 会进入 `failed` 并说明持久化错误；如果失败标记本身也
+无法落盘，当前 service 仍报告内存中的 `failed`，下一 service epoch 会把最后
+落盘的 active 状态按“中断”处理，而不会恢复成 `ready`。
+`requested` 的超时基准会在状态发布前初始化；编译和 assembly reload 回调在
+`triggerStarted=false` 时不会推进该 operation，避免无关的 Unity 编译污染等待
+状态。排入主线程的 trigger 同时绑定 `opId`、`generation` 和本次文件列表；若等待
+期间 operation 已超时或被替换，旧 trigger 会直接跳过，不产生副作用。不支持
+`File.Replace` 的运行时通过 canonical/backup 同卷换名，并在启动时恢复中断的
+替换，不会直接截断唯一状态文件。
+所有 lifecycle transition 都按 `opId + generation` 做原子 compare-and-set；
+旧 callback 不能推进或覆盖新 operation。
+
+带 `--exit-playmode` 的请求会先持久化待续文件列表与等待阶段，设置
+`isPlaying=false` 后立即结束当前 trigger，不会在仍处于 Play Mode 的同一调用栈
+里刷新；`isPlayingOrWillChangePlaymode=true` 的 EnteringPlayMode 也会先进入
+durable waiting state，再用同一 setter 取消/退出。只有收到 `EnteredEditMode`、确认
+`isPlayingOrWillChangePlaymode=false`，且 Editor compile/update 空闲后，才恢复
+同一 `opId/generation`。预期中的 ExitingPlayMode service restart 会保留该
+waiting state；进程重启也从 Library 状态恢复，不创建第二个 intent。
+
+refresh 状态 canonical path 改为
+`Library/CSharpConsole/RefreshState/v1/refresh_state.json`，不再把可清理的
+`Temp` 当作 durable acceptance。升级时会读取一次旧
+`Temp/CSharpConsole/refresh_state.json`：没有 operation 的旧 ready 记录迁移成
+pristine，旧 active operation 保守迁移成 `failed`，因为无法证明它已完成。空白、
+损坏、缺字段、未知 phase 或字段组合不一致的状态同样恢复为明确的 `failed`，
+不会静默当作从未执行过 refresh。
+
+完整 `changedFiles` 只保留在 Library 内部恢复状态；`/health` 与 `/refresh`
+response 的 public operation snapshot 会清空该数组，只返回
+`changedFileCount`，避免 `wait-ready` 每次 poll 重复传输大量路径。
+
+`wait-ready` 只应接受匹配 `opId` / `generation` 且 phase 为 `ready` 的状态：
+
+- `requested` 超时改为 `failed`，不再转成 `ready`；
+- targeted/full refresh 都会在 Import/Refresh 前发布
+  `compileRequested=true` 并显式请求 compilation；不再只靠 `.cs` 后缀推断，
+  因此 `.asmdef`、`.asmref`、`.rsp`、预编译 DLL 或 package 配置变化不会提前
+  ready；
+- 编译必须绑定当前 `opId/generation` 并观察真实 lifecycle；30 秒内未开始或
+  300 秒内未结束会转成 `failed`；
+- 如果至少一个 assembly 真正开始编译，成功后必须在 60 秒内观察到 assembly
+  reload，只有 `afterAssemblyReload` 才发布 `ready`；compile failure 直接
+  `failed`；
+- 如果 compilation pipeline 结束但没有 assembly 需要重编，则至少等待 2 秒和
+  3 个 Editor update 的稳定 idle 窗后才发布 `ready`；
+- service reload 只有在 `triggerStarted=true` 且已进入 `reloading` 时才可恢复为
+  `ready`；
+- 其他被中断的 active phase 会恢复为 `failed`。
+
+development Player 的 service 初始化强制 `Application.runInBackground=true`，
+确保失焦时主线程仍能排空 mutation 队列。
+
+### 主线程副作用提交边界
+
+受 protocol v2 保护的 `editor/playmode.enter` 与 `editor/playmode.exit` 在
+durable invocation claim 之后，把校验与 `EditorApplication.isPlaying` setter
+合并在同一次同步主线程执行中，再生成 terminal response。若 Play Mode reload 使
+response 来不及落盘，该 invocation 会恢复为
+`outcome_unknown` 而不是虚假的 completed；同一 UUID 不会再次投递。异步主线程
+工作若超时但仍在运行，会继续独占串行执行锁；后续异步请求最多等待一秒获取该锁，
+未获取时明确在执行前失败，避免串行 HTTP 接收循环永久阻塞。

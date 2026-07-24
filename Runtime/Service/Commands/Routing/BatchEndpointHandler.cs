@@ -45,6 +45,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
             public int total;
             public int succeeded;
             public int failed;
+            public bool outcomeUnknown;
             public string resultsJson = "[]";
         }
 
@@ -82,7 +83,9 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
             var envelope = _dependencies.EnvelopeFactory.CreateEnvelope(
                 batchResponse.ok,
                 "command",
-                batchResponse.ok ? "ok" : "system_error",
+                batchResponse.outcomeUnknown
+                    ? "outcome_unknown"
+                    : (batchResponse.ok ? "ok" : "system_error"),
                 batchResponse.ok
                     ? $"Batch completed: {batchResponse.succeeded}/{batchResponse.total} succeeded"
                     : $"Batch failed: {batchResponse.succeeded}/{batchResponse.total} succeeded",
@@ -99,6 +102,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
             var succeeded = 0;
             var failed = 0;
             var allOk = true;
+            var outcomeUnknown = false;
 
             foreach (var cmd in commands)
             {
@@ -141,6 +145,15 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
                 {
                     failed++;
                     allOk = false;
+                    if (string.Equals(response.type, "outcome_unknown", StringComparison.Ordinal))
+                    {
+                        outcomeUnknown = true;
+                        // The current item may have mutated Unity. Continuing
+                        // would make the batch's partial state even harder to
+                        // recover, regardless of the ordinary stopOnError flag.
+                        break;
+                    }
+
                     if (request.stopOnError)
                     {
                         break;
@@ -154,6 +167,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
                 total = succeeded + failed,
                 succeeded = succeeded,
                 failed = failed,
+                outcomeUnknown = outcomeUnknown,
                 resultsJson = "[" + string.Join(",", results) + "]"
             };
         }
@@ -172,6 +186,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
                 total = 0,
                 succeeded = 0,
                 failed = 1,
+                outcomeUnknown = false,
                 resultsJson = "[" + errorItem + "]"
             };
         }

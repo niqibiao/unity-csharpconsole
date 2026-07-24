@@ -7,6 +7,8 @@ TYPE_COMPILE_ERROR = "compile_error"
 TYPE_RUNTIME_ERROR = "runtime_error"
 TYPE_VALIDATION_ERROR = "validation_error"
 TYPE_SYSTEM_ERROR = "system_error"
+TYPE_OUTCOME_UNKNOWN = "outcome_unknown"
+TYPE_OPERATION_IN_PROGRESS = "operation_in_progress"
 
 
 def _try_load_json_object(raw):
@@ -46,6 +48,8 @@ def _decode_data_json(raw_data):
 def _exit_code_from_type(ok, result_type):
     if ok:
         return 0
+    if result_type in {TYPE_OUTCOME_UNKNOWN, TYPE_OPERATION_IN_PROGRESS}:
+        return 4
     if result_type in {TYPE_VALIDATION_ERROR, TYPE_COMPILE_ERROR}:
         return 1
     if result_type == TYPE_RUNTIME_ERROR:
@@ -57,6 +61,15 @@ def _is_response_envelope(data):
     return isinstance(data, dict) and "ok" in data and "summary" in data and "dataJson" in data
 
 
+def _decode_invocation(raw_invocation):
+    if isinstance(raw_invocation, dict):
+        return raw_invocation
+    if isinstance(raw_invocation, str):
+        parsed = _try_load_json_object(raw_invocation)
+        return parsed if isinstance(parsed, dict) else None
+    return None
+
+
 def _build_envelope_result(envelope, default_stage, session_id, mode, run_id, duration_ms):
     ok = bool(envelope.get("ok"))
     stage = envelope.get("stage") or default_stage
@@ -64,7 +77,7 @@ def _build_envelope_result(envelope, default_stage, session_id, mode, run_id, du
     summary = envelope.get("summary") or ("OK" if ok else "Request failed")
     resolved_session_id = envelope.get("sessionId", session_id) or session_id
     data = _decode_data_json(envelope.get("dataJson"))
-    return make_result(
+    result = make_result(
         ok,
         stage,
         result_type,
@@ -76,6 +89,10 @@ def _build_envelope_result(envelope, default_stage, session_id, mode, run_id, du
         duration_ms,
         data,
     )
+    invocation = _decode_invocation(envelope.get("invocation"))
+    if invocation is not None:
+        result["invocation"] = invocation
+    return result
 
 
 def _parse_envelope_result(raw, default_stage, session_id, mode, run_id, duration_ms):
@@ -198,19 +215,21 @@ def parse_command_http_response(raw, session_id, mode, run_id, duration_ms):
 
     data = result.get("data", {})
     command_payload = data if isinstance(data, dict) else {}
-    if "command" not in command_payload or "resultJson" not in command_payload:
+    if result["ok"] and ("command" not in command_payload or "resultJson" not in command_payload):
         raise ValueError("Invalid command response")
 
-    parsed_result_json = command_payload.get("resultJson")
-    if isinstance(parsed_result_json, str) and parsed_result_json.strip():
-        try:
-            parsed_result_json = json.loads(parsed_result_json)
-        except Exception:
-            pass
-    result["data"] = {
-        "command": command_payload.get("command") or {},
-        "resultJson": parsed_result_json,
-    }
+    normalized_data = dict(command_payload)
+    if "command" in normalized_data:
+        normalized_data["command"] = normalized_data.get("command") or {}
+    if "resultJson" in normalized_data:
+        parsed_result_json = normalized_data.get("resultJson")
+        if isinstance(parsed_result_json, str) and parsed_result_json.strip():
+            try:
+                parsed_result_json = json.loads(parsed_result_json)
+            except Exception:
+                pass
+        normalized_data["resultJson"] = parsed_result_json
+    result["data"] = normalized_data
     return result
 
 
