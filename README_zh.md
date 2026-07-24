@@ -175,7 +175,7 @@ python "Editor/ExternalTool~/console-client/csharp_repl.py" \
 | `Ctrl+Enter` | 插入换行，不提交 |
 | `Tab` | 接受补全候选 |
 | `Ctrl+R` | 反向历史搜索 |
-| `Ctrl+C` | 清空输入（输入为空时确认退出） |
+| `Ctrl+C` | 复制选中内容；未选中时清空输入（输入为空时确认退出） |
 
 输入时自动触发补全。工具栏显示语义补全状态：开启 `●` / 关闭 `○`。
 
@@ -184,6 +184,7 @@ python "Editor/ExternalTool~/console-client/csharp_repl.py" \
 | 命令 | 说明 |
 |------|------|
 | `/completion <0\|1>` | 切换语义补全 |
+| `/theme [名称]` | 列出或切换代码高亮主题 |
 | `/using` | 显示默认 using 文件路径 |
 | `/define` | 显示预处理宏文件路径 |
 | `/reload` | 重新加载 using / define 文件 |

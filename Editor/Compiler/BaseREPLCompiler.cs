@@ -23,7 +23,7 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
     /// - Post-processes the output assembly to inject SecurityPermission(SkipVerification) so Mono skips JIT verification.
     /// - Supports runtimeDllPath to replace editor assembly references with player assemblies.
     /// </summary>
-    public class BaseREPLCompiler : IREPLCompiler, IREPLCompletionProvider
+    public class BaseREPLCompiler : IREPLCompiler, IREPLCompilerNoticeProvider, IREPLCompletionProvider
     {
         public const int MAX_SUBMISSION_ID = REPLExecutorLimits.MAX_SUBMISSION_ID;
 
@@ -35,6 +35,8 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
         private int m_SubmissionId;
         private CSharpCompilation m_PreviousCompilation;
         private MetadataReference[] m_CachedReferences;
+        private string m_PendingNotice;
+        private bool m_HasReportedAccessibilityFallback;
 
         private readonly static string[] s_DefaultUsings =
         {
@@ -61,6 +63,7 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
         /// <param name="defaultUsing">Additional default using prefix.</param>
         public virtual (byte[] assemblyBytes, string scriptClass, string errorMsg) Compile(string code, string defines = null, string defaultUsing = null)
         {
+            m_PendingNotice = null;
             if (m_SubmissionId >= MAX_SUBMISSION_ID)
             {
                 return (null, null, "Submission buffer is full");
@@ -73,13 +76,18 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
             var tree = CSharpSyntaxTree.ParseText(fullCode, parseOptions);
             var root = (CompilationUnitSyntax)tree.GetRoot();
 
-            CacheUsings(root);
-
             var deDupRoot = DeDupUsings(root);
             tree = CSharpSyntaxTree.Create(deDupRoot, parseOptions);
 
             if (IsOnlyUsings(deDupRoot))
             {
+                // Validate before caching: a broken using cached here would poison every later submission.
+                var usingErrorMsg = ValidateUsings(deDupRoot, parseOptions);
+                if (usingErrorMsg != null)
+                {
+                    return (null, null, usingErrorMsg);
+                }
+                CacheUsings(root);
                 return default;
             }
 
@@ -88,38 +96,69 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
             var assemblyName = $"{m_AssemblyPrefix}{GetHashCode()}_{m_SubmissionId}";
             var scriptClassName = $"{m_AssemblyPrefix}{GetHashCode()}_{m_SubmissionId}";
 
-            var options = new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
-                .WithOptimizationLevel(OptimizationLevel.Release)
-                .WithMetadataImportOptions(MetadataImportOptions.All)
-                .WithAllowUnsafe(true)
-                .WithScriptClassName(scriptClassName);
-
-            SetIgnoreAccessibility(options);
-
             var compilation = CSharpCompilation.CreateScriptCompilation(
                 assemblyName,
                 tree,
                 refs,
-                options,
+                BuildSubmissionOptions(scriptClassName, ignoreAccessibility: true),
                 m_PreviousCompilation,
                 typeof(object)
             );
 
             using var ms = new MemoryStream();
             var result = compilation.Emit(ms);
+            string splitSubmissionHint = null;
+            if (!result.Success && HasAmbiguityErrors(result.Diagnostics))
+            {
+                // Same-named internal types in two assemblies (e.g. DocumentFormat.OpenXml +
+                // DocumentFormat.OpenXml.Framework polyfills) only become ambiguous (CS0433 etc.)
+                // because accessibility is ignored; retry once with standard accessibility rules.
+                var strictCompilation = CSharpCompilation.CreateScriptCompilation(
+                    assemblyName,
+                    tree,
+                    refs,
+                    BuildSubmissionOptions(scriptClassName, ignoreAccessibility: false),
+                    m_PreviousCompilation,
+                    typeof(object)
+                );
+                ms.SetLength(0);
+                var strictResult = strictCompilation.Emit(ms);
+                if (strictResult.Success)
+                {
+                    compilation = strictCompilation;
+                    result = strictResult;
+                    RecordAccessibilityFallbackNotice();
+                }
+                else
+                {
+                    splitSubmissionHint = BuildSplitSubmissionHint(result.Diagnostics, strictResult.Diagnostics);
+                }
+            }
             if (!result.Success)
             {
                 var errorsOnly = result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error);
                 var resultMsg = Enumerable.Aggregate(errorsOnly, "", (current, diag) => current + diag);
+                if (splitSubmissionHint != null)
+                {
+                    resultMsg += splitSubmissionHint;
+                }
                 return (null, null, resultMsg);
             }
 
+            CacheUsings(root);
             m_SubmissionId++;
             Volatile.Write(ref m_PreviousCompilation, compilation);
 
             var assemblyBytes = ms.ToArray();
             assemblyBytes = PostProcess(assemblyBytes);
             return (assemblyBytes, scriptClassName, null);
+        }
+
+        public string ConsumeNotice()
+        {
+            var notice = m_PendingNotice;
+            m_PendingNotice = null;
+            return notice;
         }
 
         private static byte[] PostProcess(byte[] rawAssembly)
@@ -151,12 +190,128 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
             {
                 foreach (var u in root.Usings)
                 {
-                    var line = u.ToFullString().Trim();
-                    if (!line.EndsWith(";", StringComparison.Ordinal))
-                        line += ";";
-                    m_CachedUsingLines.Add(line);
+                    m_CachedUsingLines.Add(NormalizeUsingLine(u));
                 }
             }
+        }
+
+        private static string NormalizeUsingLine(UsingDirectiveSyntax u)
+        {
+            var line = u.ToFullString().Trim();
+            if (!line.EndsWith(";", StringComparison.Ordinal))
+                line += ";";
+            return line;
+        }
+
+        private static CSharpCompilationOptions BuildSubmissionOptions(string scriptClassName, bool ignoreAccessibility)
+        {
+            var options = new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
+                .WithOptimizationLevel(OptimizationLevel.Release)
+                .WithMetadataImportOptions(MetadataImportOptions.All)
+                .WithAllowUnsafe(true)
+                .WithScriptClassName(scriptClassName);
+            if (ignoreAccessibility)
+                SetIgnoreAccessibility(options);
+            return options;
+        }
+
+        // Error ids that indicate same-named types/members colliding across assemblies —
+        // typically internal polyfills that are only visible because accessibility is ignored.
+        private static readonly string[] s_AmbiguityErrorIds = { "CS0433", "CS0104", "CS0229" };
+
+        private static readonly string[] s_AccessibilityErrorIds = { "CS0122", "CS1540", "CS0271", "CS0272" };
+
+        private static bool HasAmbiguityErrors(IEnumerable<Diagnostic> diagnostics)
+        {
+            return diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error && s_AmbiguityErrorIds.Contains(d.Id));
+        }
+
+        private void RecordAccessibilityFallbackNotice()
+        {
+            if (m_HasReportedAccessibilityFallback)
+                return;
+
+            m_HasReportedAccessibilityFallback = true;
+            m_PendingNotice =
+                "[REPL NOTICE]\n" +
+                "Symbol conflict detected: this submission was recompiled with standard C# accessibility.\n" +
+                "Non-public member access is unavailable in this submission.\n" +
+                "Later submissions still try the REPL accessibility bypass first.";
+        }
+
+        /// <summary>
+        /// Detects the split-fixable mixed failure: the accessibility-ignoring compile hit a
+        /// cross-assembly ambiguity while the strict retry was blocked by non-public access at a
+        /// different code location. Such a submission works when split in two, so return a hint;
+        /// otherwise (same location, or strict failed for unrelated reasons) return null.
+        /// </summary>
+        private static string BuildSplitSubmissionHint(IEnumerable<Diagnostic> ignoreDiagnostics, IEnumerable<Diagnostic> strictDiagnostics)
+        {
+            var strictErrors = strictDiagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
+            if (strictErrors.Count == 0 || strictErrors.Any(d => s_AmbiguityErrorIds.Contains(d.Id)))
+                return null;
+
+            var ambiguitySpans = ignoreDiagnostics
+                .Where(d => d.Severity == DiagnosticSeverity.Error && s_AmbiguityErrorIds.Contains(d.Id))
+                .Select(d => d.Location.SourceSpan)
+                .ToList();
+
+            var accessibilityBlockedElsewhere = strictErrors.Any(d =>
+                s_AccessibilityErrorIds.Contains(d.Id)
+                && !ambiguitySpans.Any(span => span.IntersectsWith(d.Location.SourceSpan)));
+            if (!accessibilityBlockedElsewhere)
+                return null;
+
+            return "\n\n[REPL ACTION REQUIRED]\n" +
+                "Split this code into two REPL submissions:\n" +
+                "  1. Submit the expression that uses the ambiguous type first.\n" +
+                "  2. Submit the non-public member access separately afterward.\n" +
+                "\n" +
+                "Reason: ignoring accessibility exposed same-named types from multiple assemblies. " +
+                "Standard accessibility resolved that ambiguity, but then correctly blocked the " +
+                "non-public member access.";
+        }
+
+        /// <summary>
+        /// Compiles the using directives alone (normalized with trailing semicolons) and returns
+        /// the aggregated error message, or null when they are all valid.
+        /// </summary>
+        private string ValidateUsings(CompilationUnitSyntax root, CSharpParseOptions parseOptions)
+        {
+            var sb = new StringBuilder();
+            foreach (var u in root.Usings)
+                sb.AppendLine(NormalizeUsingLine(u));
+
+            var tree = CSharpSyntaxTree.ParseText(sb.ToString(), parseOptions);
+
+            var errors = GetUsingValidationErrors(tree, ignoreAccessibility: true);
+            if (errors.Count > 0 && HasAmbiguityErrors(errors))
+            {
+                // Same fallback as Compile: e.g. "using static X;" where X is dual-defined
+                // internal/public across assemblies is only ambiguous when accessibility is ignored.
+                var strictErrors = GetUsingValidationErrors(tree, ignoreAccessibility: false);
+                if (strictErrors.Count == 0)
+                {
+                    RecordAccessibilityFallbackNotice();
+                    return null;
+                }
+            }
+
+            var errorMsg = Enumerable.Aggregate(errors, "", (current, diag) => current + diag);
+            return errorMsg.Length > 0 ? errorMsg : null;
+        }
+
+        private List<Diagnostic> GetUsingValidationErrors(SyntaxTree tree, bool ignoreAccessibility)
+        {
+            var compilation = CSharpCompilation.CreateScriptCompilation(
+                "UsingValidation",
+                tree,
+                GetReferences(),
+                BuildSubmissionOptions("UsingValidation", ignoreAccessibility),
+                m_PreviousCompilation,
+                typeof(object));
+
+            return compilation.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
         }
 
         private static bool IsOnlyUsings(CompilationUnitSyntax root)
@@ -356,10 +511,12 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
             var token = root.FindToken(adjustedPosition);
 
             var memberAccess = token.Parent?.FirstAncestorOrSelf<MemberAccessExpressionSyntax>();
-            if (memberAccess == null && adjustedPosition > 0)
+            var qualifiedName = token.Parent?.FirstAncestorOrSelf<QualifiedNameSyntax>();
+            if (memberAccess == null && qualifiedName == null && adjustedPosition > 0)
             {
                 token = root.FindToken(adjustedPosition - 1);
                 memberAccess = token.Parent?.FirstAncestorOrSelf<MemberAccessExpressionSyntax>();
+                qualifiedName = token.Parent?.FirstAncestorOrSelf<QualifiedNameSyntax>();
             }
 
             while (memberAccess?.Parent is MemberAccessExpressionSyntax outer
@@ -390,6 +547,22 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
                     var lookupSymbols = semanticModel.LookupSymbols(adjustedPosition, type);
                     var allTypeMembers = CollectAllTypeMembers(type);
                     return BuildSortedCompletionItems(lookupSymbols.Concat(allTypeMembers));
+                }
+            }
+
+            // Qualified names appear outside expressions (e.g. "using UnityEngine." or type positions);
+            // complete with members of the left namespace/type instead of falling back to scope lookup.
+            while (qualifiedName?.Parent is QualifiedNameSyntax outerName
+                   && adjustedPosition > outerName.DotToken.SpanStart)
+            {
+                qualifiedName = outerName;
+            }
+            if (qualifiedName != null && adjustedPosition > qualifiedName.DotToken.SpanStart)
+            {
+                var leftInfo = semanticModel.GetSymbolInfo(qualifiedName.Left);
+                if (leftInfo.Symbol is INamespaceOrTypeSymbol namespaceOrType)
+                {
+                    return BuildSortedCompletionItems(namespaceOrType.GetMembers());
                 }
             }
 

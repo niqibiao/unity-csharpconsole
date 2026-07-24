@@ -175,7 +175,7 @@ Both settings are persisted in `EditorPrefs` and only apply when **Remote Is Edi
 | `Ctrl+Enter` | Insert newline without submitting |
 | `Tab` | Accept completion candidate |
 | `Ctrl+R` | Reverse history search |
-| `Ctrl+C` | Clear input (confirm quit if empty) |
+| `Ctrl+C` | Copy selection; otherwise clear input (confirm quit if empty) |
 
 Completion activates automatically as you type. The toolbar shows semantic completion status: on `●` / off `○`.
 
@@ -184,6 +184,7 @@ Completion activates automatically as you type. The toolbar shows semantic compl
 | Command | Description |
 |---------|-------------|
 | `/completion <0\|1>` | Toggle semantic completion |
+| `/theme [name]` | List or switch code-highlighting themes |
 | `/using` | Show default `using` file path |
 | `/define` | Show preprocessor defines file path |
 | `/reload` | Reload `using` / `define` files |

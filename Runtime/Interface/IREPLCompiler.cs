@@ -4,4 +4,9 @@ namespace Zh1Zh1.CSharpConsole.Interface
     {
         public (byte[] assemblyBytes, string scriptClass, string errorMsg) Compile(string code, string defines, string defaultUsing);
     }
+
+    public interface IREPLCompilerNoticeProvider
+    {
+        public string ConsumeNotice();
+    }
 }
