@@ -20,6 +20,9 @@ class BuiltinCmdCompleter(Completer):
         text_before_cursor = document.text_before_cursor
         if not text_before_cursor or not text_before_cursor.startswith("/"):
             return
+        if " " in text_before_cursor:
+            # Argument stage — handled by per-command argument completers (e.g. ThemeCompleter).
+            return
 
         slash_prefix = text_before_cursor
         start_position = -len(slash_prefix)
@@ -160,6 +163,22 @@ class CommandExpressionCompleter(Completer):
                 yield Completion(completion_text, start_position=-len(typed_prefix), display=completion_text, display_meta=argument.get("typeName", ""))
 
 
+class ThemeCompleter(Completer):
+    def __init__(self, list_themes):
+        self._list_themes = list_themes
+
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor
+        if not text.startswith("/theme "):
+            return
+        typed = text[len("/theme "):]
+        if " " in typed:
+            return
+        for name in self._list_themes():
+            if name.lower().startswith(typed.lower()):
+                yield Completion(name, start_position=-len(typed), display=name)
+
+
 class RoslynCompleter(Completer):
     def __init__(self, is_completion_enabled, get_cmd_id):
         self._is_completion_enabled = is_completion_enabled
@@ -252,7 +271,7 @@ def trigger_completion_on_change(buff, is_completion_enabled):
     if text_before_cursor.startswith("/"):
         if text_before_cursor.startswith("//") or text_before_cursor.startswith("/*"):
             return
-        if " " not in text_before_cursor:
+        if " " not in text_before_cursor or text_before_cursor.startswith("/theme "):
             buff.start_completion(select_first=False)
         return
     if _looks_like_command_expression_completion_input(text_before_cursor):
@@ -264,10 +283,11 @@ def trigger_completion_on_change(buff, is_completion_enabled):
         buff.start_completion(select_first=False)
 
 
-def build_completers(builtin_cmds, builtin_command_order, state, get_cmd_id, is_completion_enabled):
+def build_completers(builtin_cmds, builtin_command_order, state, get_cmd_id, is_completion_enabled, list_themes):
     builtin_cmd_completer = BuiltinCmdCompleter(builtin_cmds, builtin_command_order)
     command_expr_completer = CommandExpressionCompleter(lambda: get_command_catalog(state, get_cmd_id))
+    theme_completer = ThemeCompleter(list_themes)
     roslyn_completer = RoslynCompleter(is_completion_enabled, get_cmd_id)
-    combined_completer = merge_completers([builtin_cmd_completer, command_expr_completer, roslyn_completer])
+    combined_completer = merge_completers([builtin_cmd_completer, theme_completer, command_expr_completer, roslyn_completer])
     fuzzy_completer = FuzzyCompleter(completer=combined_completer)
     return builtin_cmd_completer, command_expr_completer, roslyn_completer, combined_completer, fuzzy_completer

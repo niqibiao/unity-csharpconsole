@@ -134,6 +134,51 @@ class TranscriptControl(UIControl):
     def _normalize_entry_text(self, text):
         return (text or "").rstrip("\n")
 
+    def _build_error_body_fragments(self, entry):
+        error_style = f"class:transcript.error.{entry.error_kind or 'transport_error'}.text"
+        text = self._normalize_entry_text(entry.text or entry.summary)
+        action_marker = "[REPL ACTION REQUIRED]"
+        action_start = text.find(action_marker)
+        if action_start < 0:
+            return [(error_style, text)]
+
+        reason_start = text.find("\n\nReason:", action_start)
+        if reason_start < 0:
+            reason_start = len(text)
+
+        fragments = []
+        if action_start:
+            fragments.append((error_style, text[:action_start]))
+        fragments.append(
+            (
+                "class:transcript.error.action_required.text",
+                text[action_start:reason_start],
+            )
+        )
+        if reason_start < len(text):
+            fragments.append((error_style, text[reason_start:]))
+        return fragments
+
+    def _build_success_body_fragments(self, entry):
+        text = self._normalize_entry_text(entry.text)
+        notice_marker = "[REPL NOTICE]"
+        if not text.startswith(notice_marker):
+            return [("class:transcript.result.text", text)]
+
+        notice_end = text.find("\n\n")
+        if notice_end < 0:
+            notice_end = len(text)
+
+        fragments = [
+            (
+                "class:transcript.notice.accessibility.text",
+                text[:notice_end],
+            )
+        ]
+        if notice_end < len(text):
+            fragments.append(("class:transcript.result.text", text[notice_end:]))
+        return fragments
+
     def _build_entry_prefix_and_body(self, entry):
         timestamp = [("class:transcript.timestamp", f"[{session_ui.format_transcript_timestamp(entry.created_at)}] ")]
         if entry.entry_type == "input":
@@ -144,12 +189,12 @@ class TranscriptControl(UIControl):
         if entry.entry_type == "result" and entry.ok:
             return (
                 [*timestamp, ("class:transcript.result.prefix", "< ")],
-                [("class:transcript.result.text", self._normalize_entry_text(entry.text))],
+                self._build_success_body_fragments(entry),
             )
         if entry.entry_type == "result":
             return (
                 [*timestamp, (f"class:transcript.error.{entry.error_kind or 'transport_error'}.prefix", "! ")],
-                [(f"class:transcript.error.{entry.error_kind or 'transport_error'}.text", self._normalize_entry_text(entry.text or entry.summary))],
+                self._build_error_body_fragments(entry),
             )
         return (
             [*timestamp, ("class:transcript.info.prefix", "· ")],
@@ -322,9 +367,7 @@ class TranscriptControl(UIControl):
         return self._style_selected_fragments(fragments, self._line_start_indexes[line_index])
 
     def _append_round_separator_block(self, lines, width):
-        lines.append([])
         lines.append(session_ui.render_transcript_round_separator(width))
-        lines.append([])
 
     def _build_lines(self, width):
         lines = []
@@ -332,9 +375,9 @@ class TranscriptControl(UIControl):
         previous_entry = None
         for entry in self._transcript_state.entries:
             if previous_entry is not None:
-                lines.append([])
                 if self._entry_starts_new_round(entry, previous_entry):
                     lines.append(session_ui.render_transcript_round_separator(width))
+                else:
                     lines.append([])
             if entry.entry_type == "input":
                 round_starts.append(len(lines))
