@@ -24,7 +24,7 @@ from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.lexers import PygmentsLexer
 from prompt_toolkit.shortcuts import set_title
-from prompt_toolkit.styles import Style, merge_styles, style_from_pygments_cls
+from prompt_toolkit.styles import DynamicStyle, Style
 from prompt_toolkit.widgets import SearchToolbar
 
 try:
@@ -34,15 +34,14 @@ except Exception:
 
 try:
     from pygments.lexers.dotnet import CSharpLexer as PygmentsCSharpLexer
-    from pygments.styles import get_style_by_name
 except Exception:
     PygmentsCSharpLexer = None
-    get_style_by_name = None
 
 from repl import client, config
 from repl import output
 from repl import session_ui
 from repl import scroll_router, viewport_policy
+from repl.theme import ThemeManager, list_themes as list_theme_names
 from repl.transcript import TranscriptState
 from repl.transcript_control import TranscriptControl
 from repl.builtins import BuiltinRegistry, process_builtin_cmd as _process_builtin_cmd_impl, register_default_builtins
@@ -78,7 +77,33 @@ history = FileHistory(config._log_file_path)
 MAX_INPUT_VISIBLE_LINES = 8
 TRANSCRIPT_WHEEL_SCROLL_LINES = 3
 EXTERNAL_OPEN_DELAY_SECONDS = 0.35
+THEME_PREVIEW_CODE = """using System.Collections.Generic;
+using UnityEngine;
+[System.Serializable] public sealed class ThemePreview : MonoBehaviour {
+    // Comments, types, numbers, strings, null and interpolation
+    private readonly List<int> scores = new() { 7, 21, 42 };
+    public bool IsReady { get; private set; } = true;
+    public void Run(string player = "Codex") =>
+        Debug.Log($"Player:{player} {scores[^1]} {(string)null ?? "none"}");
+}"""
+THEME_PREVIEW_CODE_LINES = THEME_PREVIEW_CODE.count("\n") + 1
 default_mouse_bindings = load_mouse_bindings()
+
+_ui_style = Style.from_dict({
+    "banner.label": "bold ansiwhite",
+    "banner.key": "ansibrightblack",
+    "banner.value": "bold ansicyan",
+    "prompt": "bold ansiwhite",
+    "prompt.time": "ansibrightblack",
+    "prompt.sep": "bold ansicyan",
+    "status.hint": "ansiwhite",
+    "status.sep": "ansibrightblack",
+    "status.mode": "bold ansicyan",
+    "theme.preview.label": "bold ansibrightblack",
+    "theme.preview.name": "bold ansicyan",
+    **dict(session_ui.build_session_style_rules()),
+})
+theme_manager = ThemeManager(_ui_style, cache_dir=config._cache_csharp_dir)
 
 
 def _is_completion_enabled():
@@ -95,6 +120,7 @@ builtin_cmd_completer, command_expr_completer, roslyn_completer, combined_comple
     _command_catalog_state,
     _get_cmd_id,
     _is_completion_enabled,
+    list_theme_names,
 )
 
 
@@ -118,6 +144,30 @@ def get_command_catalog():
 
 def _trigger_completion_on_change(buff):
     return _trigger_completion_on_change_impl(buff, _is_completion_enabled)
+
+
+def _handle_theme_preview_on_change(buff):
+    # Cycling the completion menu writes the highlighted candidate into the buffer,
+    # so text-based preview covers both typed names and menu selection.
+    text = buff.document.text
+    if text.startswith("/theme "):
+        changed = theme_manager.preview(text[len("/theme "):].strip())
+    else:
+        changed = theme_manager.clear_preview()
+    if changed and session is not None and getattr(session, "app", None) is not None:
+        session.app.invalidate()
+
+
+def _is_theme_preview_command(text):
+    command = (text or "").strip()
+    return command == "/theme" or command.startswith("/theme ")
+
+
+def _set_theme_and_refresh(name):
+    ok = theme_manager.set_theme(name)
+    if ok and session is not None and getattr(session, "app", None) is not None:
+        session.app.invalidate()
+    return ok
 
 
 @Condition
@@ -358,6 +408,7 @@ class ReplApplicationShell:
             complete_while_typing=False,
         )
         self.default_buffer.on_text_changed += _trigger_completion_on_change
+        self.default_buffer.on_text_changed += _handle_theme_preview_on_change
         self.default_buffer.on_text_changed += self._handle_input_text_changed
         self._last_input_visible_lines = 1
 
@@ -372,6 +423,22 @@ class ReplApplicationShell:
             get_vertical_scroll=lambda _window: self.transcript_control.get_vertical_scroll(),
         )
         self.input_divider = FormattedTextControl(self._render_input_divider, focusable=False)
+        self.theme_preview_label = FormattedTextControl(self._render_theme_preview_label, focusable=False)
+        self.theme_preview_code = FormattedTextControl(self._render_theme_preview_code, focusable=False)
+        self.theme_preview_container = ConditionalContainer(
+            content=HSplit(
+                [
+                    Window(content=self.theme_preview_label, height=1),
+                    Window(
+                        content=self.theme_preview_code,
+                        height=THEME_PREVIEW_CODE_LINES,
+                        wrap_lines=False,
+                        always_hide_cursor=True,
+                    ),
+                ]
+            ),
+            filter=Condition(self._is_theme_preview_visible),
+        )
         self.input_control = BufferControl(
             buffer=self.default_buffer,
             lexer=self.lexer,
@@ -408,6 +475,7 @@ class ReplApplicationShell:
                 ConditionalContainer(
                     content=HSplit(
                         [
+                            self.theme_preview_container,
                             self.transcript_window,
                             Window(content=self.input_divider, height=1),
                             VSplit(
@@ -500,6 +568,18 @@ class ReplApplicationShell:
             if index < len(document.lines) - 1:
                 fragments.append(("", "\n"))
         return fragments or [("class:transcript.input.text", text or "")]
+
+    def _is_theme_preview_visible(self):
+        return _is_theme_preview_command(self._get_input_document_text())
+
+    def _render_theme_preview_label(self):
+        return [
+            ("class:theme.preview.label", "[theme preview] "),
+            ("class:theme.preview.name", theme_manager.active_theme()),
+        ]
+
+    def _render_theme_preview_code(self):
+        return self._render_transcript_code_fragments(THEME_PREVIEW_CODE)
 
     def _render_input_divider(self):
         return session_ui.render_input_divider(self._get_available_width())
@@ -610,28 +690,7 @@ def ensure_prompt_session():
     if session is not None:
         return session
     lexer = PygmentsLexer(PygmentsCSharpLexer) if PygmentsCSharpLexer is not None else None
-    pygments_style = style_from_pygments_cls(get_style_by_name("dracula")) if get_style_by_name is not None else None
-    extra_style = Style.from_dict({
-        "banner.label": "bold ansiwhite",
-        "banner.key": "ansibrightblack",
-        "banner.value": "bold ansicyan",
-        "prompt": "bold ansiwhite",
-        "prompt.time": "ansibrightblack",
-        "prompt.sep": "bold ansicyan",
-        "status.hint": "ansiwhite",
-        "status.sep": "ansibrightblack",
-        "status.mode": "bold ansicyan",
-        "pygments.keyword": "bold ansimagenta",
-        "pygments.name": "ansiwhite",
-        "pygments.name.class": "bold ansigreen",
-        "pygments.name.function": "bold ansigreen",
-        "pygments.literal.string": "ansiyellow",
-        "pygments.literal.number": "ansiblue",
-        "pygments.operator": "bold ansicyan",
-        **dict(session_ui.build_session_style_rules()),
-    })
-    style = merge_styles([pygments_style, extra_style]) if pygments_style is not None else extra_style
-    session = ReplApplicationShell(style=style, lexer=lexer)
+    session = ReplApplicationShell(style=DynamicStyle(theme_manager.active_style), lexer=lexer)
     return session
 
 
@@ -654,6 +713,9 @@ register_default_builtins(
         "invalidate_command_catalog": invalidate_command_catalog,
         "execute_repl_snippet": lambda message, reset=False: execute_repl_snippet(message, reset=reset),
         "clear_transcript": _clear_prompt_transcript,
+        "theme_list": list_theme_names,
+        "theme_current": lambda: theme_manager.current_theme(),
+        "theme_set": _set_theme_and_refresh,
     },
 )
 

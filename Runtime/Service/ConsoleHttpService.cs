@@ -392,6 +392,26 @@ namespace Zh1Zh1.CSharpConsole.Service
             s_ReplServiceRegistry.ClearAll();
         }
 
+        private static string ConsumeCompilerNotice(IREPLCompiler compiler)
+        {
+            return (compiler as IREPLCompilerNoticeProvider)?.ConsumeNotice() ?? "";
+        }
+
+        private static string CombineCompilerNotice(string notice, string result)
+        {
+            if (string.IsNullOrEmpty(notice))
+            {
+                return result ?? "";
+            }
+
+            if (string.IsNullOrEmpty(result))
+            {
+                return notice;
+            }
+
+            return $"{notice}\n\n{result}";
+        }
+
 #if UNITY_EDITOR
         private static async Task ProcessEditorREPL(HttpListenerContext context)
         {
@@ -420,6 +440,7 @@ namespace Zh1Zh1.CSharpConsole.Service
                     var compiler = s_ReplServiceRegistry.FetchEditorREPLCompiler(uuid, s_EditorREPLCompilerGenerator);
                     var executor = s_ReplServiceRegistry.FetchExecutor(uuid, s_EditorREPLExecutorGenerator);
                     var (assemblyBytes, scriptClassName, errorMsg) = compiler.Compile(code, defines, defaultUsing);
+                    var compilerNotice = ConsumeCompilerNotice(compiler);
 
                     if (!string.IsNullOrEmpty(errorMsg))
                     {
@@ -428,11 +449,11 @@ namespace Zh1Zh1.CSharpConsole.Service
 
                     if (assemblyBytes == null)
                     {
-                        return string.Empty;
+                        return compilerNotice;
                     }
 
                     var evalResult = await executor.ExecuteAsync(assemblyBytes, scriptClassName);
-                    return evalResult?.ToString() ?? string.Empty;
+                    return CombineCompilerNotice(compilerNotice, evalResult?.ToString());
                 });
 
                 response = s_EnvelopeFactory.CreateTextEnvelope("execute", result, uuid);
@@ -464,9 +485,11 @@ namespace Zh1Zh1.CSharpConsole.Service
         private static async Task CompileAndRespond(HttpListenerContext context, IREPLCompiler compiler, string code, string defines, string defaultUsing)
         {
             CompileOnlyResponse responseData;
+            var compilerNotice = "";
             try
             {
                 var (assemblyBytes, scriptClassName, errorMsg) = compiler.Compile(code, defines, defaultUsing);
+                compilerNotice = ConsumeCompilerNotice(compiler);
                 responseData = new CompileOnlyResponse
                 {
                     dllBase64 = assemblyBytes != null ? Convert.ToBase64String(assemblyBytes) : "",
@@ -480,7 +503,9 @@ namespace Zh1Zh1.CSharpConsole.Service
             }
 
             var ok = string.IsNullOrEmpty(responseData.error);
-            var summary = ok ? "Compile succeeded" : responseData.error;
+            var summary = ok
+                ? (string.IsNullOrEmpty(compilerNotice) ? "Compile succeeded" : compilerNotice)
+                : responseData.error;
             var envelope = s_EnvelopeFactory.CreateEnvelope(ok, "compile", ok ? "ok" : "compile_error", summary, "", JsonUtility.ToJson(responseData));
             await WriteEnvelopeResponseAsync(context, envelope, "EditorCompile");
         }
@@ -1170,17 +1195,19 @@ namespace Zh1Zh1.CSharpConsole.Service
                 {
                     var compiler = s_ReplServiceRegistry.FetchRuntimeREPLCompiler(uuid, runtimeDllPath, s_RuntimeREPLCompilerGenerator);
                     var (compileBytes, compileScriptClsName, errorMsg) = compiler.Compile(code, defines, defaultUsing);
+                    var compilerNotice = ConsumeCompilerNotice(compiler);
                     if (!string.IsNullOrEmpty(errorMsg))
                     {
                         result = $"Compile failed: {errorMsg}";
                     }
                     else if (compileBytes == null)
                     {
-                        result = "";
+                        result = compilerNotice;
                     }
                     else
                     {
-                        result = await ForwardDllToPlayer(targetIP, targetPort, uuid, compileBytes, compileScriptClsName);
+                        var executeResult = await ForwardDllToPlayer(targetIP, targetPort, uuid, compileBytes, compileScriptClsName);
+                        result = CombineCompilerNotice(compilerNotice, executeResult);
                     }
                 }
             }

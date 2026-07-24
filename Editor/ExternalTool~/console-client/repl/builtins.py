@@ -2,6 +2,7 @@ import io
 import os
 import subprocess
 import sys
+import textwrap
 from contextlib import redirect_stdout
 
 from csharpconsole_core.models import make_result
@@ -14,7 +15,7 @@ from . import client, config
 class BuiltinRegistry:
     def __init__(self):
         self.commands = {}
-        self.order = ["/help", "/completion", "/using", "/define", "/reload", "/reset", "/clear", "/dofile"]
+        self.order = ["/help", "/completion", "/theme", "/using", "/define", "/reload", "/reset", "/clear", "/dofile"]
 
     def decorator(self, cmd, description, completion=None):
         def register(func):
@@ -164,6 +165,23 @@ def register_default_builtins(registry, state):
             state["roslyn_invalidate"]()
             return
         print("Usage: /completion 0|1\n")
+
+    @registry.decorator("/theme", "Switch code highlight theme; /theme lists candidates", completion="/theme ")
+    def switch_theme(message):
+        themes = state["theme_list"]()
+        if not themes:
+            print("Pygments is not available; theme switching is disabled.\n")
+            return
+        name = message.strip()
+        if not name:
+            print(f"Current theme: {state['theme_current']()}\n")
+            print("Available themes (candidates preview live while selecting):")
+            print(textwrap.fill(", ".join(themes), width=78, initial_indent="  ", subsequent_indent="  ") + "\n")
+            return
+        if state["theme_set"](name):
+            print(f"Theme switched to '{name}'.\n")
+        else:
+            print(f"Unknown theme: {name}. Type /theme to list available themes.\n")
 
     @registry.decorator("/using", "Show how to edit the default using file")
     def edit_default_using(message):

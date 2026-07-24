@@ -16,9 +16,20 @@ def build_terminal_title(config_module):
     return f"c# REPL/{target_ip}:{target_port}"
 
 
-def build_startup_banner(config_module, cmd_id):
-    work_mode, target_ip, target_port = get_session_target(config_module)
+def _append_executor_mode(parts, executor_mode, key_style, value_style):
+    if not executor_mode:
+        return parts
     return [
+        *parts,
+        ("", "  "),
+        (key_style, "executor="),
+        (value_style, str(executor_mode)),
+    ]
+
+
+def build_startup_banner(config_module, cmd_id, executor_mode=""):
+    work_mode, target_ip, target_port = get_session_target(config_module)
+    return _append_executor_mode([
         ("class:banner.label", "[session] "),
         ("class:banner.key", "workMode="),
         ("class:banner.value", work_mode),
@@ -28,7 +39,7 @@ def build_startup_banner(config_module, cmd_id):
         ("", "  "),
         ("class:banner.key", "cmdId="),
         ("class:banner.value", str(cmd_id)),
-    ]
+    ], executor_mode, "class:banner.key", "class:banner.value")
 
 
 def _format_short_cmd_id(cmd_id):
@@ -38,9 +49,9 @@ def _format_short_cmd_id(cmd_id):
     return value[:8]
 
 
-def build_footer_session_text(config_module, cmd_id):
+def build_footer_session_text(config_module, cmd_id, executor_mode=""):
     work_mode, target_ip, target_port = get_session_target(config_module)
-    return [
+    return _append_executor_mode([
         ("class:footer.session.label", "[session] "),
         ("class:footer.session.key", "workMode="),
         ("class:footer.session.value", work_mode),
@@ -50,7 +61,7 @@ def build_footer_session_text(config_module, cmd_id):
         ("", "  "),
         ("class:footer.session.key", "cmdId="),
         ("class:footer.session.value", _format_short_cmd_id(cmd_id)),
-    ]
+    ], executor_mode, "class:footer.session.key", "class:footer.session.value")
 
 
 def build_footer_common_shortcuts_text():
@@ -227,11 +238,13 @@ def build_session_style_rules():
         ("transcript.input.text", "ansiwhite"),
         ("transcript.result.prefix", "bold ansigreen"),
         ("transcript.result.text", "ansiwhite"),
+        ("transcript.notice.accessibility.text", "bold ansiblack bg:ansiyellow"),
         ("transcript.info.prefix", "bold ansibrightblack"),
         ("transcript.info.text", "ansibrightblack"),
         ("warmup.text", "bold ansicyan"),
         ("transcript.error.compile_error.prefix", "bold ansiwhite bg:ansired"),
         ("transcript.error.compile_error.text", "ansiwhite bg:ansired"),
+        ("transcript.error.action_required.text", "bold ansiblack bg:ansiyellow"),
         ("transcript.error.timeout_error.prefix", "bold ansiblack bg:ansiyellow"),
         ("transcript.error.timeout_error.text", "ansiblack bg:ansiyellow"),
         ("transcript.error.connection_error.prefix", "bold ansiwhite bg:ansimagenta"),
