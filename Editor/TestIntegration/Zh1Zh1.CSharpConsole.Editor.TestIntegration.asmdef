@@ -1,0 +1,19 @@
+{
+    "name": "Zh1Zh1.CSharpConsole.Editor.TestIntegration",
+    "rootNamespace": "Zh1Zh1.CSharpConsole",
+    "references": [
+        "Zh1Zh1.CSharpConsole.Runtime",
+        "UnityEditor.TestRunner"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

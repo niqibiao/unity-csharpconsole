@@ -21,10 +21,16 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
             _mainThreadRunner = mainThreadRunner;
         }
 
-        public CommandResponse Dispatch(CommandRegistry registry, CommandInvocation invocation)
+        public CommandResponse Dispatch(
+            CommandRegistry registry,
+            CommandInvocation invocation,
+            CommandDispatchContext dispatchContext = null)
         {
             registry ??= new CommandRegistry();
             invocation ??= new CommandInvocation();
+            dispatchContext ??= CommandDispatchContext.Unprotected();
+            invocation.protectedInvocationId =
+                dispatchContext.ProtectedInvocationId ?? "";
 
             if (!registry.TryGet(invocation.commandNamespace, invocation.action, out var route))
             {
@@ -37,6 +43,24 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
                 return CommandResponseFactory.ValidationError(invocation, $"Command is only available in the Unity editor: {invocation.commandNamespace}/{invocation.action}");
             }
 #endif
+
+            if (route.descriptor != null
+                && !route.descriptor.allowInBatch
+                && dispatchContext.IsBatch)
+            {
+                return CommandResponseFactory.ValidationError(
+                    invocation,
+                    $"Command cannot run in a batch: {invocation.commandNamespace}/{invocation.action}");
+            }
+
+            if (route.descriptor != null
+                && route.descriptor.requiresProtectedInvocation
+                && string.IsNullOrEmpty(invocation.protectedInvocationId))
+            {
+                return CommandResponseFactory.ValidationError(
+                    invocation,
+                    $"Command requires a protected direct invocation: {invocation.commandNamespace}/{invocation.action}");
+            }
 
             try
             {

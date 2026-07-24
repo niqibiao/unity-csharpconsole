@@ -10,6 +10,8 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
         public string action { get; }
         public bool editorOnly { get; }
         public bool runOnMainThread { get; }
+        public bool requiresProtectedInvocation { get; }
+        public bool allowInBatch { get; }
         public string summary { get; }
         public CommandType commandType { get; }
 
@@ -20,12 +22,16 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
             bool editorOnly = false,
             bool runOnMainThread = true,
             string summary = "",
-            CommandType commandType = CommandType.Builtin)
+            CommandType commandType = CommandType.Builtin,
+            bool requiresProtectedInvocation = false,
+            bool allowInBatch = true)
         {
             this.commandNamespace = commandNamespace ?? "";
             this.action = action ?? "";
             this.editorOnly = editorOnly;
             this.runOnMainThread = runOnMainThread;
+            this.requiresProtectedInvocation = requiresProtectedInvocation;
+            this.allowInBatch = allowInBatch;
             this.summary = summary ?? "";
             this.commandType = commandType;
         }

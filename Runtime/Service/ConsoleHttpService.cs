@@ -771,7 +771,10 @@ namespace Zh1Zh1.CSharpConsole.Service
                     "invocation_headers",
                     "invocation_receipts",
                     "invocation_status",
-                    "at_most_once"
+                    "at_most_once",
+#if UNITY_EDITOR
+                    "test_runs_v1"
+#endif
                 },
                 journalWritable = s_InvocationCoordinator.JournalWritable,
                 dedupeWindowSeconds = InvocationCoordinator.DedupeWindowSeconds,

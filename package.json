@@ -20,5 +20,8 @@
   ],
   "bugs": {
     "url": "https://github.com/zh1zh1/com.zh1zh1.csharpconsole/issues"
+  },
+  "dependencies": {
+    "com.unity.test-framework": "1.1.33"
   }
 }

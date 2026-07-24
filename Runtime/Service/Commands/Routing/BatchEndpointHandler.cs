@@ -120,7 +120,9 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
                     }
                 };
 
-                var response = CommandRouter.Dispatch(commandRequest)
+                var response = CommandRouter.Dispatch(
+                    commandRequest,
+                    CommandDispatchContext.Batch())
                     ?? CommandResponseFactory.SystemError(
                         CommandInvocation.FromRequest(commandRequest),
                         "Failed to process command");

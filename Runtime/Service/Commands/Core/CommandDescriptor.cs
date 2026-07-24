@@ -11,6 +11,8 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
         public string summary = "";
         public bool editorOnly;
         public bool runOnMainThread;
+        public bool requiresProtectedInvocation;
+        public bool allowInBatch = true;
         public string declaringType = "";
         public string methodName = "";
         public string commandType = "builtin";

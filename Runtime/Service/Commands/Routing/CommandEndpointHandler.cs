@@ -45,9 +45,18 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
                 else
                 {
                     var request = JsonUtility.FromJson<CommandRequest>(message);
+                    var claim =
+                        ConsoleHttpServiceDependencies.GetInvocationClaim(context);
+                    var dispatchContext = CommandDispatchContext.Direct(
+                        claim?.Disposition == InvocationClaimDisposition.Execute
+                            ? claim.InvocationId
+                            : "");
                     response = request == null
                         ? CommandResponseFactory.InvalidRequestBody()
-                        : (CommandRouter.Dispatch(request) ?? CommandResponseFactory.SystemError(CommandInvocation.FromRequest(request), "Failed to process command"));
+                        : (CommandRouter.Dispatch(request, dispatchContext)
+                            ?? CommandResponseFactory.SystemError(
+                                CommandInvocation.FromRequest(request),
+                                "Failed to process command"));
                 }
             }
             catch (Exception e)

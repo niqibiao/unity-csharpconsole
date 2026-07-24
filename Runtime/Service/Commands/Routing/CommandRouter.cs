@@ -24,9 +24,13 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
             m_Dispatcher = new CommandDispatcher(mainThreadRunner);
         }
 
-        internal static CommandResponse Dispatch(CommandRequest request)
+        internal static CommandResponse Dispatch(
+            CommandRequest request,
+            CommandDispatchContext dispatchContext = null)
         {
-            return GetOrCreate().DispatchInternal(request ?? new CommandRequest());
+            return GetOrCreate().DispatchInternal(
+                request ?? new CommandRequest(),
+                dispatchContext ?? CommandDispatchContext.Unprotected());
         }
 
         internal static CommandDescriptor[] ListDescriptors()
@@ -174,10 +178,15 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
             }
         }
 
-        private CommandResponse DispatchInternal(CommandRequest request)
+        private CommandResponse DispatchInternal(
+            CommandRequest request,
+            CommandDispatchContext dispatchContext)
         {
             var invocation = CommandInvocation.FromRequest(request);
-            return m_Dispatcher.Dispatch(m_Registry, invocation);
+            return m_Dispatcher.Dispatch(
+                m_Registry,
+                invocation,
+                dispatchContext);
         }
 
         private static CommandDescriptor BuildDescriptor(Type ownerType, MethodInfo method, CommandActionAttribute attribute, CommandArgumentDescriptor[] arguments)
@@ -190,6 +199,9 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
                 summary = attribute.summary ?? "",
                 editorOnly = attribute.editorOnly,
                 runOnMainThread = attribute.runOnMainThread,
+                requiresProtectedInvocation =
+                    attribute.requiresProtectedInvocation,
+                allowInBatch = attribute.allowInBatch,
                 declaringType = ownerType?.FullName ?? "",
                 methodName = method?.Name ?? "",
                 commandType = attribute.commandType == CommandType.Custom ? "custom" : "builtin",

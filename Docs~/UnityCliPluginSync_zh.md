@@ -1,5 +1,110 @@
 # unity-cli-plugin 协议同步记录
 
+## 2026-07-24：Unity Tests 有界异步状态机
+
+新增两个 Editor-only 内置命令，wire namespace 独立为 `tests`：
+
+```text
+tests/run(mode, testNames?)
+tests/status(runId, waitSeconds=0)
+```
+
+`tests/run` 的 `mode` 必须是 `edit` 或 `play`。省略 `testNames` 表示运行该模式
+下的全部测试；若提供，则必须包含 1–32 个非空的精确测试全名，每项最多 512 个
+UTF-16 代码单元（与 C# `string.Length` 一致）。它只能作为受 at-most-once
+保护的直连 `/command` 请求执行，不能放进
+`/batch`；缺少受保护 invocation id 时，dispatcher 会在参数绑定、主线程切换和
+handler 执行之前拒绝。`runId` 直接取受保护 invocation UUID 的 32 位十六进制
+`N` 格式；当前或保留历史中已有同一 `runId` 时不会再次调用
+`TestRunnerApi.Execute`。
+
+执行前还会检查所有已加载 scene；只要存在 dirty scene 就返回
+`validation_error`，要求先保存或丢弃修改，避免非交互执行触发保存确认框。
+成功响应只返回紧凑 acceptance：
+
+```json
+{
+  "runId": "32 位十六进制 id",
+  "phase": "requested",
+  "mode": "edit",
+  "accepted": true
+}
+```
+
+调用方必须保存 `runId`。Test Framework 运行 GUID 只保存在内部 durable
+state，用于把全局 callback 归属到唯一运行，不能作为公开 selector。
+
+`tests/status` 必须传入上述 `runId`，它本身不要求受保护 invocation。
+`waitSeconds` 范围为 0–20；大于 0 时，
+若当前请求不在 Editor 主线程，会短暂等待 terminal state，以减少复杂工作流的
+轮询次数和重复上下文。状态结果不返回测试树、passing test 列表、完整 Output 或
+XML，只返回：
+
+- `phase`: `requested`、`running`、`completed` 或 `interrupted`；
+- `outcome`: terminal 时为 `passed`、`failed`、`skipped`、
+  `inconclusive`、`no_tests` 或 `unknown`；
+- total/completed/passed/failed/skipped/inconclusive 的扁平计数；
+- 当前测试、根结果、耗时、时间戳和操作级 message；
+- 有界 `failureDetails`、`returnedFailureCount` 与
+  `failuresTruncated`。
+
+`status.resultJson` 的 UTF-8 大小硬限制为 16 KiB。失败详情最多保留 20 条，
+单条测试名、message 与 stack 都有独立上限；超过状态文件或 response 预算时从
+尾部省略并显式设置 `failuresTruncated=true`。完成裁剪后仍无法满足 16 KiB 时
+返回 `system_error`，不会发送超限 payload。
+
+### durable ownership 与 reload
+
+内部状态位于
+`Library/CSharpConsole/TestRuns/v1/state.json`，采用 flush + 同卷原子替换，
+最大 64 KiB。当前终态会在下一次 run acceptance 前原子归档到 `history/`；
+`tests/status` 可查询当前 run 或最近 16 个已归档终态。超出保留数量的详细记录
+会连同对应的 `seen/` marker 一起裁剪；marker 总量因此只覆盖 current + 16 条
+历史，不形成无界 machine-local state。
+历史文件损坏、文件名与内容中的 `runId` 不一致或归档失败时均 fail closed，且
+等待 run A 的请求在唤醒后会按 A 的 `runId` 重新取当前/历史记录，绝不会误返回
+随后启动的 run B。
+
+执行顺序固定为：
+
+```text
+持久化 requested + seen marker → TestRunnerApi.Execute 恰好一次
+→ 持久化 Test Framework run id → callback 推进 running/completed
+```
+
+Test Framework callback 不携带 run id、属于全局订阅，并会在 domain reload 后
+丢失。因此集成放在独立 Editor assembly 中，每次 reload 重新注册 callback；一个
+版本隔离的内部 probe 会在 dispatch 后证明唯一活动 run，并把 ownership proof
+持久化。进入 Play Mode 后，Test Framework 可能先移除 editor-side job，再发送
+remote callback；此时只在 proof 已持久化且没有其他活动 framework job 时接受该
+callback stream。出现冲突 run、probe 不可用、离开 Play Mode 后超过短暂宽限仍
+没有 terminal callback、状态文件损坏或关键写入失败时，状态一律 fail closed 为
+`interrupted`，不会推断成功，也不会再次调用 `Execute`。
+
+测试断言失败属于 `phase=completed` + `outcome=failed`，与基础设施证据中断分开。
+完成状态优先使用根结果的 `TestStatus` / `ResultState` 判定；cancel、setup error、
+teardown error 或其他根失败不会被误报为 `passed` / `no_tests`，空根结果也不会
+生成 `completed`。suite/setup/teardown 失败与 leaf failure 共用同一套 20 条和
+字节预算。
+`IErrorCallbacks` 本身无法可靠归属到已被移除的 run，因此只作为
+`interrupted` 诊断保存。
+
+live command descriptor 新增 `requiresProtectedInvocation` 与 `allowInBatch`。
+Editor `/health` 新增精确 capability `test_runs_v1`；Player 不声明该 capability。
+
+推荐调用方使用：
+
+```text
+tests/run → tests/status(runId, waitSeconds=10)
+```
+
+如果 Play Mode 或 assembly reload 使连接暂时断开，先用 `wait-ready` 恢复同一
+Unity 2022 target，再继续查询同一个测试 `runId`；不得通过新的
+`tests/run` 重试结果未明的运行。
+服务端只保证 health 公告的 dedupe window；该窗口之外的长期“不重发”由 CLI
+machine-local outbox 保证。调用方不得把已发送过的旧 invocation UUID 作为新意图
+再次 dispatch。
+
 ## 2026-07-24：`editor/console.get` 有界诊断读取
 
 新增只读内置命令 `editor/console.get`。接口只包含一个可选参数：
@@ -141,7 +246,8 @@ envelope。状态查询也会即时检查 24 小时窗口；过期 record 会在
   使用各自独立的 target ledger；
 - `serviceEpoch`：每次 service 初始化生成；domain reload 后会变化；
 - `capabilities`：`invocation_headers`、`invocation_receipts`、
-  `invocation_status`、`at_most_once`；
+  `invocation_status`、`at_most_once`；Editor 还会在测试状态机可用时声明精确的
+  `test_runs_v1`，Player 不声明；
 - `journalWritable`
 - `dedupeWindowSeconds`
 - `isUpdating`
