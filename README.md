@@ -5,7 +5,7 @@
 **Interactive C# REPL for Unity — powered by Roslyn**
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Unity](https://img.shields.io/badge/Unity-2020.3%2B-black.svg?logo=unity)](https://unity.com/)
+[![Unity](https://img.shields.io/badge/Unity-2022-black.svg?logo=unity)](https://unity.com/)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-blueviolet.svg?logo=anthropic)](https://claude.ai/code)
 [![UPM](https://img.shields.io/badge/UPM-Package-brightgreen.svg)](package.json)
 
@@ -276,7 +276,7 @@ See the full guide: **[Extending Commands](Docs~/ExtendingCommands.md)**
 
 | Dependency | Version |
 |------------|---------|
-| Unity | 2020.3+ |
+| Unity | 2022 |
 | Python | 3.7+ (on system `PATH`) |
 | Windows Terminal | Optional (falls back to Python directly) |
 

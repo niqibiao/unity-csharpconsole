@@ -112,9 +112,17 @@ Handler 参数从 JSON args 按名称自动绑定，不需要 DTO 类。
     editorOnly: false,    // true = Player 构建中不可用
     runOnMainThread: true,// 默认 true — 框架自动调度到 Unity 主线程
                           // 仅当 handler 自行管理主线程调度时才设为 false
-    summary: ""           // 人类可读的描述
+    summary: "",          // 人类可读的描述
+    requiresProtectedInvocation: false,
+                          // true = 必须使用 protocol-v2 保护的直连 /command invocation
+    allowInBatch: true    // false = 在 batch handler 执行前拒绝该命令
 )]
 ```
+
+只有不可重复、需要把服务端接受的 invocation UUID 作为 durable identity 的工作流，
+才应设置 `requiresProtectedInvocation: true`。这类命令不能由未受保护的客户端调用，
+并应同时设置 `allowInBatch: false`；batch 子命令不会继承父 batch 的 invocation
+UUID。
 
 ## 注入参数
 
@@ -134,7 +142,11 @@ public static class MyCommands
 }
 ```
 
-`CommandInvocation` 包含 `commandNamespace`、`action`、`sessionId` 以及原始 `argsJson`。
+`CommandInvocation` 包含 `commandNamespace`、`action`、`sessionId`、原始
+`argsJson` 以及 `protectedInvocationId`。最后一个字段只会在受保护的直连
+`/command` 请求中保存规范化 UUID；未受保护请求和所有 batch 子命令中均为空。
+需要该字段的 handler 还必须声明 `requiresProtectedInvocation: true`，这样
+dispatcher 会在参数绑定、主线程切换和 handler 执行前拒绝缺失 id 的请求。
 
 ## Editor 辅助工具
 
@@ -220,3 +232,6 @@ Zh1Zh1.CSharpConsole.RuntimeInitializer.ConsoleInitialize();
 ```
 
 命令按顺序执行。当 `stopOnError` 为 `true` 时，首次失败后停止执行，剩余命令被跳过。响应包含每个命令的结果。`total` 字段反映实际执行的命令数（而非提交数），因此 `succeeded + failed == total` 始终成立。
+
+声明为 `allowInBatch: false` 的命令会在 handler 运行前被拒绝。batch 请求自身受
+保护的 invocation UUID 绝不会作为子命令的 `protectedInvocationId` 暴露。

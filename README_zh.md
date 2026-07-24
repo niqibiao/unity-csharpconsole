@@ -5,7 +5,7 @@
 **Unity 交互式 C# REPL — 基于 Roslyn**
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Unity](https://img.shields.io/badge/Unity-2020.3%2B-black.svg?logo=unity)](https://unity.com/)
+[![Unity](https://img.shields.io/badge/Unity-2022-black.svg?logo=unity)](https://unity.com/)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-blueviolet.svg?logo=anthropic)](https://claude.ai/code)
 [![UPM](https://img.shields.io/badge/UPM-Package-brightgreen.svg)](package.json)
 
@@ -276,7 +276,7 @@ Tab 补全支持命令名和参数名。
 
 | 依赖 | 版本 |
 |------|------|
-| Unity | 2020.3+ |
+| Unity | 2022 |
 | Python | 3.7+（系统 PATH 可访问） |
 | Windows Terminal | 可选（不可用时回退到直接启动 Python） |
 

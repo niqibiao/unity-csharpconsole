@@ -112,9 +112,17 @@ Handler parameters are bound automatically from JSON args by name. No DTO classe
     editorOnly: false,    // true = unavailable on Player builds
     runOnMainThread: true,// default true — the framework dispatches to the Unity main thread
                           // Set false only when the handler self-dispatches internally
-    summary: ""           // Human-readable description
+    summary: "",          // Human-readable description
+    requiresProtectedInvocation: false,
+                          // true = require a durable protocol-v2 direct /command invocation
+    allowInBatch: true    // false = reject this command before batch handler execution
 )]
 ```
+
+Use `requiresProtectedInvocation: true` only for a non-repeatable workflow that
+needs the server-accepted invocation UUID as durable identity. Such a command is
+unavailable to unprotected clients. Pair it with `allowInBatch: false`: batch
+items deliberately do not inherit the parent batch invocation UUID.
 
 ## Injected Parameters
 
@@ -134,7 +142,12 @@ public static class MyCommands
 }
 ```
 
-`CommandInvocation` exposes `commandNamespace`, `action`, `sessionId`, and the raw `argsJson`.
+`CommandInvocation` exposes `commandNamespace`, `action`, `sessionId`, the raw
+`argsJson`, and `protectedInvocationId`. The last field is a normalized UUID
+only for a protected direct `/command` request; it is empty for unprotected
+requests and every batch item. A handler that requires it must also declare
+`requiresProtectedInvocation: true` so the dispatcher rejects a missing id
+before parameter binding, main-thread switching, or handler execution.
 
 ## Editor Helper Utilities
 
@@ -220,3 +233,7 @@ The `/batch` endpoint executes multiple commands in a single HTTP request, reduc
 ```
 
 Commands execute sequentially. When `stopOnError` is `true`, execution halts on the first failure and remaining commands are skipped. The response includes per-command results. The `total` field reflects the number of commands actually executed (not the number submitted), so `succeeded + failed == total` always holds.
+
+A command declared with `allowInBatch: false` is rejected before its handler
+runs. The protected invocation UUID of the batch request is never exposed as a
+child command's `protectedInvocationId`.
