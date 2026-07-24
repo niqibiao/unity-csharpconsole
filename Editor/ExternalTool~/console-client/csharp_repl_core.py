@@ -789,7 +789,7 @@ def execute_repl_snippet(message, reset=False):
 
 def _build_startup_snippet(runtime_mode):
     mode = " (runtime)" if runtime_mode else ""
-    return f'$"Connected — Unity {{UnityEngine.Application.unityVersion}}, {{UnityEngine.Application.platform}}{mode}. Type / to see available commands."'
+    return f'$"Connected — Unity {{UnityEngine.Application.unityVersion.Split(\'.\')[0]}}, {{UnityEngine.Application.platform}}{mode}. Type / to see available commands."'
 
 
 _STARTUP_HINT_TEXT = "Warming up Unity Roslyn compiler — first startup may take a few seconds..."

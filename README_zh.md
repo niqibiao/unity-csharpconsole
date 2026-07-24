@@ -38,40 +38,40 @@
 
 <img src="Docs~/images/repl-0.gif" width="100%" />
 
-#### 即时求值 — 无需 class，无需 Main，直接写代码
+#### 实时主题预览 — 用 ↑ / ↓ 浏览候选项
 
-```csharp
-DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
+```text
+/theme
 ```
 
 <img src="Docs~/images/repl-1.png" />
 
-#### 跨提交状态保持 — 变量在后续提交中存活
+#### 模糊语义补全 — 只输入关键字符
 
-```csharp
-var cam = Camera.main; cam.transform.position
+```text
+GameObject.fnd  →  GameObject.Find
 ```
 
 <img src="Docs~/images/repl-2.png" />
 
-#### 私有成员访问 — 编译时绕过访问修饰符
+#### 私有成员访问 — 接受补全前即可看到访问级别
 
-```csharp
-var go = GameObject.Find("Main Camera");
-go.m_InstanceID
+```text
+cam.mid  →  cam.m_InstanceID
 ```
 
 <img src="Docs~/images/repl-3.png" />
 
-#### LINQ 查询运行中的场景对象
+#### 跨提交状态 — 在后续表达式复用实时 Unity 对象
 
-```csharp
-string.Join(", ", UnityEngine.Object.FindObjectsOfType<Rigidbody>().Select(x => x.name))
+```text
+var m = cam.transform.localToWorldMatrix
+m.mp34  →  m.MultiplyPoint3x4
 ```
 
 <img src="Docs~/images/repl-4.png" />
 
-#### 命令表达式 — 直接调用服务端命令
+#### 命令表达式 — 直接检查 Editor 状态
 
 ```csharp
 @editor.status()
@@ -206,7 +206,7 @@ Tab 补全支持命令名和参数名。
 
 ## 📋 内置 Action
 
-13 个命名空间，50 个内置命令，覆盖编辑器控制、场景操作、资产管理等常见场景。
+13 个命名空间，59 个内置命令，覆盖编辑器控制、场景操作、资产管理等常见场景。
 
 | 命名空间 | Action | 说明 |
 |----------|--------|------|

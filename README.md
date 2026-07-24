@@ -38,40 +38,40 @@ English | [中文](README_zh.md)
 
 <img src="Docs~/images/repl-0.gif" width="100%" />
 
-#### Immediate evaluation — no class, no Main, just code
+#### Live theme preview — browse candidates with ↑ / ↓
 
-```csharp
-DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
+```text
+/theme
 ```
 
 <img src="Docs~/images/repl-1.png" />
 
-#### Cross-submission state — variables survive across submissions
+#### Fuzzy semantic completion — type only the significant characters
 
-```csharp
-var cam = Camera.main; cam.transform.position
+```text
+GameObject.fnd  →  GameObject.Find
 ```
 
 <img src="Docs~/images/repl-2.png" />
 
-#### Private member access — bypass access modifiers at compile time
+#### Private member access — inspect accessibility before accepting
 
-```csharp
-var go = GameObject.Find("Main Camera");
-go.m_InstanceID
+```text
+cam.mid  →  cam.m_InstanceID
 ```
 
 <img src="Docs~/images/repl-3.png" />
 
-#### LINQ over live scene objects
+#### Stateful submissions — reuse live Unity values in later expressions
 
-```csharp
-string.Join(", ", UnityEngine.Object.FindObjectsOfType<Rigidbody>().Select(x => x.name))
+```text
+var m = cam.transform.localToWorldMatrix
+m.mp34  →  m.MultiplyPoint3x4
 ```
 
 <img src="Docs~/images/repl-4.png" />
 
-#### Command expressions — invoke server-side commands directly
+#### Command expressions — inspect Editor state directly
 
 ```csharp
 @editor.status()
@@ -206,7 +206,7 @@ Tab completion works for both command names and argument names.
 
 ## 📋 Built-in Actions
 
-50 built-in commands across 13 namespaces, covering editor control, scene manipulation, asset management, and more.
+59 built-in commands across 13 namespaces, covering editor control, scene manipulation, asset management, and more.
 
 | Namespace | Action | Description |
 |-----------|--------|-------------|
