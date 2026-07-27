@@ -268,6 +268,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             string gameObjectPath,
             out string error)
         {
+            // Prefab locators carry serialized object identity; names and sibling order are mutable.
             error = null;
             if (root == null)
             {
@@ -275,86 +276,271 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 return null;
             }
 
-            if (string.IsNullOrEmpty(gameObjectPath))
+            var expectedGuid = GetPrefabAssetGuid(assetPath, out error);
+            if (expectedGuid == null)
+                return null;
+
+            if (!TryGetPrefabSourceIdentity(
+                    root,
+                    assetPath,
+                    expectedGuid,
+                    out _,
+                    out _,
+                    out _,
+                    out error))
             {
+                return null;
+            }
+
+            if (gameObjectPath == "")
                 return root;
-            }
 
-            var segments = gameObjectPath.Split('/');
-            var current = root.transform;
-            for (var i = 0; i < segments.Length; i++)
+            if (!TryParsePrefabLocator(gameObjectPath, out var locatorGuid, out var localId, out error))
+                return null;
+            if (!string.Equals(locatorGuid, expectedGuid, StringComparison.Ordinal))
             {
-                var segment = segments[i];
-                if (string.IsNullOrEmpty(segment))
-                {
-                    error = $"Invalid prefab GameObject locator '{gameObjectPath}': empty path segments are not allowed";
-                    return null;
-                }
-
-                var separator = segment.IndexOf(':');
-                if (separator <= 0 ||
-                    !int.TryParse(
-                        segment.Substring(0, separator),
-                        NumberStyles.None,
-                        CultureInfo.InvariantCulture,
-                        out var siblingIndex) ||
-                    siblingIndex < 0 ||
-                    !string.Equals(
-                        siblingIndex.ToString(CultureInfo.InvariantCulture),
-                        segment.Substring(0, separator),
-                        StringComparison.Ordinal))
-                {
-                    error = $"Invalid prefab GameObject locator segment '{segment}' at depth {i}: expected '<siblingIndex>:<escapedName>'";
-                    return null;
-                }
-
-                if (siblingIndex >= current.childCount)
-                {
-                    error = $"Prefab GameObject locator index {siblingIndex} is out of range at depth {i} in prefab '{assetPath}'";
-                    return null;
-                }
-
-                var child = current.GetChild(siblingIndex);
-                var expectedSegment = GetPrefabLocatorSegment(child);
-                if (!string.Equals(segment, expectedSegment, StringComparison.Ordinal))
-                {
-                    error = $"Prefab GameObject locator segment '{segment}' does not match sibling {siblingIndex} at depth {i} in prefab '{assetPath}'";
-                    return null;
-                }
-
-                current = child;
+                error = $"Prefab GameObject locator belongs to asset GUID '{locatorGuid}', not '{expectedGuid}' for '{assetPath}'";
+                return null;
             }
 
-            return current.gameObject;
+            GameObject match = null;
+            var identities = new Dictionary<long, GameObject>();
+            var pending = new Stack<Transform>();
+            pending.Push(root.transform);
+            while (pending.Count > 0)
+            {
+                var candidate = pending.Pop().gameObject;
+                if (!TryGetPrefabSourceIdentity(
+                        candidate,
+                        assetPath,
+                        expectedGuid,
+                        out _,
+                        out _,
+                        out var candidateLocalId,
+                        out error))
+                {
+                    return null;
+                }
+
+                if (identities.TryGetValue(candidateLocalId, out var existing) &&
+                    existing != candidate)
+                {
+                    error = $"Prefab asset '{assetPath}' maps multiple GameObjects to local file ID {candidateLocalId}";
+                    return null;
+                }
+                identities[candidateLocalId] = candidate;
+
+                if (candidateLocalId == localId)
+                {
+                    if (match != null && match != candidate)
+                    {
+                        error = $"Prefab GameObject locator '{gameObjectPath}' is ambiguous in '{assetPath}'";
+                        return null;
+                    }
+                    match = candidate;
+                }
+
+                var transform = candidate.transform;
+                for (var i = transform.childCount - 1; i >= 0; i--)
+                    pending.Push(transform.GetChild(i));
+            }
+
+            if (match == null)
+            {
+                error = $"No GameObject with local file ID {localId} exists in prefab '{assetPath}'";
+                return null;
+            }
+            if (match == root)
+            {
+                error = "The prefab root must use an empty gameObjectPath";
+                return null;
+            }
+
+            return match;
         }
 
-        internal static string GetPrefabRelativePath(Transform node, Transform root)
+        internal static string GetPrefabRelativePath(Transform node, Transform root, string assetPath)
         {
             if (node == null)
                 throw new ArgumentNullException(nameof(node));
             if (root == null)
                 throw new ArgumentNullException(nameof(root));
-            if (node == root)
-                return "";
 
-            var segments = new List<string>();
-            var current = node;
-            while (current != null && current != root)
+            var expectedGuid = GetPrefabAssetGuid(assetPath, out var error);
+            if (expectedGuid == null)
+                throw new InvalidOperationException(error);
+            if (!TryGetPrefabSourceIdentity(
+                    root.gameObject,
+                    assetPath,
+                    expectedGuid,
+                    out _,
+                    out _,
+                    out var rootLocalId,
+                    out error))
             {
-                segments.Add(GetPrefabLocatorSegment(current));
-                current = current.parent;
+                throw new InvalidOperationException(error);
+            }
+            if (!TryGetPrefabSourceIdentity(
+                    node.gameObject,
+                    assetPath,
+                    expectedGuid,
+                    out _,
+                    out var guid,
+                    out var localId,
+                    out error))
+            {
+                throw new InvalidOperationException(error);
             }
 
-            if (current != root)
-                throw new InvalidOperationException("Cannot create a prefab locator for a GameObject outside the supplied prefab root");
+            if (localId == rootLocalId)
+            {
+                if (node != root)
+                    throw new InvalidOperationException($"Prefab asset '{assetPath}' maps a non-root GameObject to the root local file ID");
+                return "";
+            }
 
-            segments.Reverse();
-            return string.Join("/", segments);
+            var locator = $"gid:{guid}:{localId.ToString(CultureInfo.InvariantCulture)}";
+            var resolved = ResolvePrefabGameObject(root.gameObject, assetPath, locator, out error);
+            if (resolved == null ||
+                !TryGetPrefabSourceIdentity(
+                    resolved,
+                    assetPath,
+                    expectedGuid,
+                    out _,
+                    out var resolvedGuid,
+                    out var resolvedLocalId,
+                    out error) ||
+                !string.Equals(resolvedGuid, guid, StringComparison.Ordinal) ||
+                resolvedLocalId != localId)
+            {
+                throw new InvalidOperationException(error ?? $"Prefab locator '{locator}' did not resolve to its source GameObject");
+            }
+
+            return locator;
         }
 
-        private static string GetPrefabLocatorSegment(Transform node)
+        private static string GetPrefabAssetGuid(string assetPath, out string error)
         {
-            return $"{node.GetSiblingIndex().ToString(CultureInfo.InvariantCulture)}:{Uri.EscapeDataString(node.name ?? "")}";
+            var guid = (AssetDatabase.AssetPathToGUID(assetPath) ?? "").ToLowerInvariant();
+            if (!IsCanonicalPrefabGuid(guid))
+            {
+                error = $"No canonical asset GUID exists for prefab '{assetPath}'";
+                return null;
+            }
+
+            error = null;
+            return guid;
+        }
+
+        private static bool TryGetPrefabSourceIdentity(
+            GameObject candidate,
+            string assetPath,
+            string expectedGuid,
+            out GameObject source,
+            out string guid,
+            out long localId,
+            out string error)
+        {
+            source = null;
+            guid = null;
+            localId = 0;
+            error = null;
+            if (candidate == null)
+            {
+                error = $"Cannot map a missing GameObject to prefab '{assetPath}'";
+                return false;
+            }
+
+            // The explicit target path keeps nested Prefab and Variant mapping on the requested asset.
+            source = PrefabUtility.GetCorrespondingObjectFromSourceAtPath(candidate, assetPath);
+            if (source == null && EditorUtility.IsPersistent(candidate) &&
+                AssetDatabase.TryGetGUIDAndLocalFileIdentifier(candidate, out var candidateGuid, out long candidateLocalId) &&
+                string.Equals((candidateGuid ?? "").ToLowerInvariant(), expectedGuid, StringComparison.Ordinal))
+            {
+                source = candidate;
+                guid = expectedGuid;
+                localId = candidateLocalId;
+            }
+
+            if (source == null || !EditorUtility.IsPersistent(source))
+            {
+                error = $"GameObject '{candidate.name}' has no persistent source in prefab '{assetPath}'";
+                return false;
+            }
+
+            if (guid == null &&
+                !AssetDatabase.TryGetGUIDAndLocalFileIdentifier(source, out guid, out localId))
+            {
+                error = $"Cannot read the persistent identity of GameObject '{candidate.name}' in prefab '{assetPath}'";
+                return false;
+            }
+
+            guid = (guid ?? "").ToLowerInvariant();
+            if (!IsCanonicalPrefabGuid(guid) ||
+                !string.Equals(guid, expectedGuid, StringComparison.Ordinal))
+            {
+                error = $"GameObject '{candidate.name}' maps outside prefab asset '{assetPath}'";
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool TryParsePrefabLocator(
+            string locator,
+            out string guid,
+            out long localId,
+            out string error)
+        {
+            guid = null;
+            localId = 0;
+            error = null;
+            const int guidStart = 4;
+            const int guidLength = 32;
+            const int idSeparator = guidStart + guidLength;
+            if (locator == null ||
+                locator.Length <= idSeparator + 1 ||
+                !locator.StartsWith("gid:", StringComparison.Ordinal) ||
+                locator[idSeparator] != ':' ||
+                locator.IndexOf(':', idSeparator + 1) >= 0)
+            {
+                error = $"Invalid prefab GameObject locator '{locator}': expected 'gid:<32 lowercase hex>:<canonical Int64>'";
+                return false;
+            }
+
+            guid = locator.Substring(guidStart, guidLength);
+            var localIdText = locator.Substring(idSeparator + 1);
+            if (!IsCanonicalPrefabGuid(guid) ||
+                !long.TryParse(
+                    localIdText,
+                    NumberStyles.AllowLeadingSign,
+                    CultureInfo.InvariantCulture,
+                    out localId) ||
+                !string.Equals(
+                    localId.ToString(CultureInfo.InvariantCulture),
+                    localIdText,
+                    StringComparison.Ordinal))
+            {
+                error = $"Invalid prefab GameObject locator '{locator}': GUID and local file ID must be canonical";
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsCanonicalPrefabGuid(string guid)
+        {
+            if (guid == null || guid.Length != 32)
+                return false;
+
+            for (var i = 0; i < guid.Length; i++)
+            {
+                var c = guid[i];
+                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')))
+                    return false;
+            }
+
+            return true;
         }
 
         // ── Shared SerializedProperty helpers ──

@@ -449,7 +449,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     return (error: (string)null, result: new AssetGetResult
                     {
                         assetPath = assetPath,
-                        gameObjectPath = CommandHelpers.GetPrefabRelativePath(t, root.transform),
+                        gameObjectPath = CommandHelpers.GetPrefabRelativePath(t, root.transform, assetPath),
                         instanceId = go.GetInstanceID(),
                         name = go.name,
                         tag = go.tag,
@@ -536,7 +536,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     return (error: (string)null, result: new AssetGetComponentResult
                     {
                         assetPath = assetPath,
-                        gameObjectPath = CommandHelpers.GetPrefabRelativePath(go.transform, root.transform),
+                        gameObjectPath = CommandHelpers.GetPrefabRelativePath(go.transform, root.transform, assetPath),
                         typeName = type.Name,
                         componentInstanceId = comp.GetInstanceID(),
                         properties = props.ToArray()
@@ -613,7 +613,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     return (error: (string)null, result: new AssetModifyComponentResult
                     {
                         assetPath = assetPath,
-                        gameObjectPath = CommandHelpers.GetPrefabRelativePath(go.transform, root.transform),
+                        gameObjectPath = CommandHelpers.GetPrefabRelativePath(go.transform, root.transform, assetPath),
                         typeName = type.Name,
                         modifiedFields = modifiedFields.ToArray()
                     });
@@ -667,7 +667,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     return (error: (string)null, result: new AssetAddComponentResult
                     {
                         assetPath = assetPath,
-                        gameObjectPath = CommandHelpers.GetPrefabRelativePath(go.transform, root.transform),
+                        gameObjectPath = CommandHelpers.GetPrefabRelativePath(go.transform, root.transform, assetPath),
                         typeName = type.Name,
                         componentInstanceId = comp.GetInstanceID()
                     });
@@ -725,7 +725,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     return (error: (string)null, result: new AssetRemoveComponentResult
                     {
                         assetPath = assetPath,
-                        gameObjectPath = CommandHelpers.GetPrefabRelativePath(go.transform, root.transform),
+                        gameObjectPath = CommandHelpers.GetPrefabRelativePath(go.transform, root.transform, assetPath),
                         typeName = type.Name,
                         removed = true
                     });
@@ -786,7 +786,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     return (error: (string)null, result: new AssetModifyGameObjectResult
                     {
                         assetPath = assetPath,
-                        gameObjectPath = CommandHelpers.GetPrefabRelativePath(go.transform, root.transform),
+                        gameObjectPath = CommandHelpers.GetPrefabRelativePath(go.transform, root.transform, assetPath),
                         name = go.name
                     });
                 },
@@ -863,7 +863,8 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                             return (error, result: (AssetAddGameObjectResult)null);
                         var persistedPath = CommandHelpers.GetPrefabRelativePath(
                             persistedChild.transform,
-                            refreshedAssetRoot.transform);
+                            refreshedAssetRoot.transform,
+                            assetPath);
 
                         return (error: (string)null, result: new AssetAddGameObjectResult
                         {
@@ -939,10 +940,12 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 
                         var path = CommandHelpers.GetPrefabRelativePath(
                             assetGameObject.transform,
-                            assetRoot.transform);
+                            assetRoot.transform,
+                            assetPath);
                         var canonicalParentPath = CommandHelpers.GetPrefabRelativePath(
                             assetParent,
-                            assetRoot.transform);
+                            assetRoot.transform,
+                            assetPath);
                         var originalParentChildCount = assetParent.childCount;
 
                         UnityEngine.Object.DestroyImmediate(instanceGameObject);
