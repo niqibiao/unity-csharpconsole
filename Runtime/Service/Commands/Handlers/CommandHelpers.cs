@@ -258,6 +258,22 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             root = LoadPrefabAsset(assetPath, out error);
             if (root == null) return null;
 
+            return ResolvePrefabGameObject(root, assetPath, gameObjectPath, out error);
+        }
+
+        internal static GameObject ResolvePrefabGameObject(
+            GameObject root,
+            string assetPath,
+            string gameObjectPath,
+            out string error)
+        {
+            error = null;
+            if (root == null)
+            {
+                error = $"No prefab asset found at '{assetPath}'";
+                return null;
+            }
+
             if (string.IsNullOrEmpty(gameObjectPath) || gameObjectPath == "/")
             {
                 return root;

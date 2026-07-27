@@ -710,20 +710,40 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             return CommandHelpers.RunCommand<AssetAddGameObjectResult>(
                 () =>
                 {
-                    var parent = CommandHelpers.ResolvePrefabGameObject(assetPath, parentPath, out var root, out var error);
-                    if (parent == null) return (error, result: (AssetAddGameObjectResult)null);
+                    if (CommandHelpers.LoadPrefabAsset(assetPath, out var error) == null)
+                        return (error, result: (AssetAddGameObjectResult)null);
 
-                    var child = new GameObject(string.IsNullOrEmpty(name) ? "GameObject" : name);
-                    child.transform.SetParent(parent.transform, false);
-
-                    PrefabUtility.SavePrefabAsset(root);
-
-                    return (error: (string)null, result: new AssetAddGameObjectResult
+                    GameObject root = null;
+                    try
                     {
-                        assetPath = assetPath,
-                        gameObjectPath = CommandHelpers.GetPrefabRelativePath(child.transform, root.transform),
-                        name = child.name
-                    });
+                        root = PrefabUtility.LoadPrefabContents(assetPath);
+                        if (root == null)
+                            return (error: $"Failed to load prefab contents at '{assetPath}'", result: (AssetAddGameObjectResult)null);
+
+                        var parent = CommandHelpers.ResolvePrefabGameObject(root, assetPath, parentPath, out error);
+                        if (parent == null)
+                            return (error, result: (AssetAddGameObjectResult)null);
+
+                        var child = new GameObject(string.IsNullOrEmpty(name) ? "GameObject" : name);
+                        child.transform.SetParent(parent.transform, false);
+                        var childPath = CommandHelpers.GetPrefabRelativePath(child.transform, root.transform);
+
+                        PrefabUtility.SaveAsPrefabAsset(root, assetPath, out var saveSucceeded);
+                        if (!saveSucceeded)
+                            return (error: $"Failed to save prefab at '{assetPath}'", result: (AssetAddGameObjectResult)null);
+
+                        return (error: (string)null, result: new AssetAddGameObjectResult
+                        {
+                            assetPath = assetPath,
+                            gameObjectPath = childPath,
+                            name = child.name
+                        });
+                    }
+                    finally
+                    {
+                        if (root != null)
+                            PrefabUtility.UnloadPrefabContents(root);
+                    }
                 },
                 r => $"Added '{r.name}' to prefab"
             );
@@ -757,22 +777,42 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             return CommandHelpers.RunCommand<AssetRemoveGameObjectResult>(
                 () =>
                 {
-                    var go = CommandHelpers.ResolvePrefabGameObject(assetPath, gameObjectPath, out var root, out var error);
-                    if (go == null) return (error, result: (AssetRemoveGameObjectResult)null);
+                    if (CommandHelpers.LoadPrefabAsset(assetPath, out var error) == null)
+                        return (error, result: (AssetRemoveGameObjectResult)null);
 
-                    if (go == root)
-                        return (error: "Cannot remove the root GameObject of a prefab asset", result: (AssetRemoveGameObjectResult)null);
-
-                    var path = CommandHelpers.GetPrefabRelativePath(go.transform, root.transform);
-                    UnityEngine.Object.DestroyImmediate(go, true);
-                    PrefabUtility.SavePrefabAsset(root);
-
-                    return (error: (string)null, result: new AssetRemoveGameObjectResult
+                    GameObject root = null;
+                    try
                     {
-                        assetPath = assetPath,
-                        gameObjectPath = path,
-                        removed = true
-                    });
+                        root = PrefabUtility.LoadPrefabContents(assetPath);
+                        if (root == null)
+                            return (error: $"Failed to load prefab contents at '{assetPath}'", result: (AssetRemoveGameObjectResult)null);
+
+                        var go = CommandHelpers.ResolvePrefabGameObject(root, assetPath, gameObjectPath, out error);
+                        if (go == null)
+                            return (error, result: (AssetRemoveGameObjectResult)null);
+
+                        if (go == root)
+                            return (error: "Cannot remove the root GameObject of a prefab asset", result: (AssetRemoveGameObjectResult)null);
+
+                        var path = CommandHelpers.GetPrefabRelativePath(go.transform, root.transform);
+                        UnityEngine.Object.DestroyImmediate(go, true);
+
+                        PrefabUtility.SaveAsPrefabAsset(root, assetPath, out var saveSucceeded);
+                        if (!saveSucceeded)
+                            return (error: $"Failed to save prefab at '{assetPath}'", result: (AssetRemoveGameObjectResult)null);
+
+                        return (error: (string)null, result: new AssetRemoveGameObjectResult
+                        {
+                            assetPath = assetPath,
+                            gameObjectPath = path,
+                            removed = true
+                        });
+                    }
+                    finally
+                    {
+                        if (root != null)
+                            PrefabUtility.UnloadPrefabContents(root);
+                    }
                 },
                 r => $"Removed '{r.gameObjectPath}' from prefab"
             );
