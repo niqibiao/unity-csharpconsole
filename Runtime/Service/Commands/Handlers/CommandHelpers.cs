@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 #if UNITY_EDITOR
 using UnityEditor;
 using UnityEngine;
@@ -274,25 +275,50 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 return null;
             }
 
-            if (string.IsNullOrEmpty(gameObjectPath) || gameObjectPath == "/")
+            if (string.IsNullOrEmpty(gameObjectPath))
             {
                 return root;
             }
 
-            var segments = gameObjectPath.TrimStart('/').Split('/');
+            var segments = gameObjectPath.Split('/');
             var current = root.transform;
             for (var i = 0; i < segments.Length; i++)
             {
-                Transform child = null;
-                for (var j = 0; j < current.childCount; j++)
+                var segment = segments[i];
+                if (string.IsNullOrEmpty(segment))
                 {
-                    var c = current.GetChild(j);
-                    if (c.name == segments[i]) { child = c; break; }
+                    error = $"Invalid prefab GameObject locator '{gameObjectPath}': empty path segments are not allowed";
+                    return null;
                 }
 
-                if (child == null)
+                var separator = segment.IndexOf(':');
+                if (separator <= 0 ||
+                    !int.TryParse(
+                        segment.Substring(0, separator),
+                        NumberStyles.None,
+                        CultureInfo.InvariantCulture,
+                        out var siblingIndex) ||
+                    siblingIndex < 0 ||
+                    !string.Equals(
+                        siblingIndex.ToString(CultureInfo.InvariantCulture),
+                        segment.Substring(0, separator),
+                        StringComparison.Ordinal))
                 {
-                    error = $"Child '{segments[i]}' not found at depth {i} in prefab '{assetPath}'";
+                    error = $"Invalid prefab GameObject locator segment '{segment}' at depth {i}: expected '<siblingIndex>:<escapedName>'";
+                    return null;
+                }
+
+                if (siblingIndex >= current.childCount)
+                {
+                    error = $"Prefab GameObject locator index {siblingIndex} is out of range at depth {i} in prefab '{assetPath}'";
+                    return null;
+                }
+
+                var child = current.GetChild(siblingIndex);
+                var expectedSegment = GetPrefabLocatorSegment(child);
+                if (!string.Equals(segment, expectedSegment, StringComparison.Ordinal))
+                {
+                    error = $"Prefab GameObject locator segment '{segment}' does not match sibling {siblingIndex} at depth {i} in prefab '{assetPath}'";
                     return null;
                 }
 
@@ -304,18 +330,31 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 
         internal static string GetPrefabRelativePath(Transform node, Transform root)
         {
-            if (node == null || node == root) return "";
+            if (node == null)
+                throw new ArgumentNullException(nameof(node));
+            if (root == null)
+                throw new ArgumentNullException(nameof(root));
+            if (node == root)
+                return "";
 
-            var sb = new System.Text.StringBuilder(node.name);
-            var current = node.parent;
+            var segments = new List<string>();
+            var current = node;
             while (current != null && current != root)
             {
-                sb.Insert(0, '/');
-                sb.Insert(0, current.name);
+                segments.Add(GetPrefabLocatorSegment(current));
                 current = current.parent;
             }
 
-            return sb.ToString();
+            if (current != root)
+                throw new InvalidOperationException("Cannot create a prefab locator for a GameObject outside the supplied prefab root");
+
+            segments.Reverse();
+            return string.Join("/", segments);
+        }
+
+        private static string GetPrefabLocatorSegment(Transform node)
+        {
+            return $"{node.GetSiblingIndex().ToString(CultureInfo.InvariantCulture)}:{Uri.EscapeDataString(node.name ?? "")}";
         }
 
         // ── Shared SerializedProperty helpers ──
