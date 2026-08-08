@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
+using System.Threading;
 using UnityEngine;
 using Zh1Zh1.CSharpConsole.Service.Commands.Core;
 using Zh1Zh1.CSharpConsole.Service.Commands.Handlers;
@@ -10,14 +12,20 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
     internal sealed class CommandRouter
     {
         private readonly static object s_Lock = new object();
+        private const int MAX_DISCOVERY_STABILITY_ATTEMPTS = 8;
+
         private static CommandRouter s_Instance;
         private static int s_ConfigVersion = -1;
-        private static int s_DiscoveryFailedVersion = -1;
-        private const double DISCOVERY_RETRY_COOLDOWN_SECONDS = 10.0;
-        private static double s_DiscoveryFailedTimestamp = -1.0;
+        private static long s_AssemblyEpoch;
+        private static long s_PublishedAssemblyEpoch = -1;
 
         private readonly CommandRegistry m_Registry = new CommandRegistry();
         private readonly CommandDispatcher m_Dispatcher;
+
+        static CommandRouter()
+        {
+            AppDomain.CurrentDomain.AssemblyLoad += OnAssemblyLoad;
+        }
 
         private CommandRouter(Func<Func<CommandResponse>, CommandResponse> mainThreadRunner)
         {
@@ -34,15 +42,17 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
             return GetOrCreate().m_Registry.ListDescriptors();
         }
 
+        internal static CommandRegistrySnapshot GetRegistrySnapshot()
+        {
+            return GetOrCreate().m_Registry.GetSnapshot();
+        }
+
         internal static void ConfigureDiscovery(CommandDiscoveryOptions options, ICommandAssemblyFilter assemblyFilter = null)
         {
             lock (s_Lock)
             {
                 CommandDiscoveryOptions.Configure(options, assemblyFilter);
-                s_Instance = null;
                 s_ConfigVersion = -1;
-                s_DiscoveryFailedVersion = -1;
-                s_DiscoveryFailedTimestamp = -1.0;
             }
         }
 
@@ -53,7 +63,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
                 throw new ArgumentNullException(nameof(ownerType));
             }
 
-            RegisterAttributedHandlersFromType(ownerType);
+            RegisterAttributedHandlersFromType(ownerType, RegistryPartition.Builtin);
         }
 
         private static CommandRouter GetOrCreate()
@@ -61,72 +71,118 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
             lock (s_Lock)
             {
                 var configVersion = CommandDiscoveryOptions.GetVersion();
+                var assemblyEpoch = ReadAssemblyEpoch();
                 if (s_Instance != null && s_ConfigVersion == configVersion)
                 {
-                    // If discovery previously failed and cooldown has elapsed, discard the
-                    // cached instance and fall through to rebuild from scratch.  We cannot
-                    // retry on the existing instance because CommandRegistry throws on
-                    // duplicate registrations for commands that were already registered
-                    // before the original failure.
-                    if (s_DiscoveryFailedVersion == configVersion && ShouldRetryDiscovery())
-                    {
-                        s_Instance = null;
-                    }
-                    else
+                    if (s_PublishedAssemblyEpoch == assemblyEpoch)
                     {
                         return s_Instance;
                     }
                 }
 
-                var router = new CommandRouter(BuildMainThreadRunner());
-                SessionCommandActions.Register(router);
-                EditorCommandActions.Register(router);
-                ProjectCommandActions.Register(router);
-                CommandCatalogCommandActions.Register(router);
-                GameObjectCommandActions.Register(router);
-                ComponentCommandActions.Register(router);
-                SceneCommandActions.Register(router);
-                TransformCommandActions.Register(router);
-                PrefabCommandActions.Register(router);
-                MaterialCommandActions.Register(router);
-                ScreenshotCommandActions.Register(router);
-                ProfilerCommandActions.Register(router);
-                AssetCommandActions.Register(router);
-
-                if (s_DiscoveryFailedVersion != configVersion || ShouldRetryDiscovery())
+                try
                 {
-                    try
+                    for (var attempt = 0;
+                         attempt < MAX_DISCOVERY_STABILITY_ATTEMPTS;
+                         attempt++)
                     {
-                        router.RegisterAttributedHandlersFromLoadedAssemblies();
-                        s_DiscoveryFailedVersion = -1;
-                        s_DiscoveryFailedTimestamp = -1.0;
-                    }
-                    catch (Exception e)
-                    {
-                        s_DiscoveryFailedVersion = configVersion;
-                        s_DiscoveryFailedTimestamp = ServiceTimestamp.Now();
-                        Debug.LogError($"[CSharpConsole] Failed to auto-discover command actions: {e}");
-                    }
-                }
+                        var startingConfigVersion =
+                            CommandDiscoveryOptions.GetVersion();
+                        var startingAssemblyEpoch = ReadAssemblyEpoch();
+                        var candidate = BuildCandidate();
 
-                s_Instance = router;
-                s_ConfigVersion = configVersion;
-                return s_Instance;
+                        // Materialize normalization, references, and fingerprints before
+                        // the candidate can become routable.
+                        candidate.m_Registry.GetSnapshot();
+
+                        var endingConfigVersion =
+                            CommandDiscoveryOptions.GetVersion();
+                        var endingAssemblyEpoch = ReadAssemblyEpoch();
+                        if (startingConfigVersion != endingConfigVersion
+                            || startingAssemblyEpoch != endingAssemblyEpoch)
+                        {
+                            continue;
+                        }
+
+                        s_Instance = candidate;
+                        s_ConfigVersion = endingConfigVersion;
+                        s_PublishedAssemblyEpoch = endingAssemblyEpoch;
+
+                        // AssemblyLoad does not take s_Lock. Re-read after publication
+                        // so this point is the linearization boundary: a change before
+                        // it retries, while a change after it dirties the next request.
+                        if (CommandDiscoveryOptions.GetVersion()
+                                == endingConfigVersion
+                            && ReadAssemblyEpoch() == endingAssemblyEpoch)
+                        {
+                            return s_Instance;
+                        }
+
+                        s_Instance = null;
+                        s_ConfigVersion = -1;
+                        s_PublishedAssemblyEpoch = -1;
+                    }
+
+                    throw new InvalidOperationException(
+                        "Command discovery did not reach a stable "
+                        + "assembly/configuration epoch after "
+                        + $"{MAX_DISCOVERY_STABILITY_ATTEMPTS} complete attempts");
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError(
+                        $"[CSharpConsole] Failed to build the command registry: {e}");
+                    throw;
+                }
             }
+        }
+
+        private static CommandRouter BuildCandidate()
+        {
+            var router = new CommandRouter(BuildMainThreadRunner());
+            RegisterBuiltinHandlers(router);
+            router.RegisterAttributedHandlersFromLoadedAssemblies();
+            return router;
+        }
+
+        private static void RegisterBuiltinHandlers(CommandRouter router)
+        {
+            SessionCommandActions.Register(router);
+            EditorCommandActions.Register(router);
+            ProjectCommandActions.Register(router);
+            CommandCatalogCommandActions.Register(router);
+            GameObjectCommandActions.Register(router);
+            ComponentCommandActions.Register(router);
+            SceneCommandActions.Register(router);
+            TransformCommandActions.Register(router);
+            PrefabCommandActions.Register(router);
+            MaterialCommandActions.Register(router);
+            ScreenshotCommandActions.Register(router);
+            ProfilerCommandActions.Register(router);
+            AssetCommandActions.Register(router);
         }
 
         private void RegisterAttributedHandlersFromLoadedAssemblies()
         {
             var discoveryOptions = CommandDiscoveryOptions.GetCurrent();
             var assemblyFilter = CommandDiscoveryOptions.GetAssemblyFilter();
-            var assemblies = AppDomain.CurrentDomain.GetAssemblies();
+            var discoveredAssemblies = AppDomain.CurrentDomain.GetAssemblies();
+            var candidates = new List<Assembly>(discoveredAssemblies.Length);
+            foreach (var assembly in discoveredAssemblies)
+            {
+                if (ShouldScanAssembly(
+                        assembly,
+                        discoveryOptions,
+                        assemblyFilter))
+                {
+                    candidates.Add(assembly);
+                }
+            }
+
+            var assemblies = candidates.ToArray();
+            Array.Sort(assemblies, CompareAssemblies);
             foreach (var assembly in assemblies)
             {
-                if (!ShouldScanAssembly(assembly, discoveryOptions, assemblyFilter))
-                {
-                    continue;
-                }
-
                 Type[] types;
                 try
                 {
@@ -134,33 +190,50 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
                 }
                 catch (ReflectionTypeLoadException e)
                 {
-                    types = e.Types;
+                    throw new InvalidOperationException(
+                        $"Failed to load all types from custom command assembly "
+                        + $"'{assembly.FullName}'. Partial discovery is not allowed.",
+                        e);
                 }
-                catch
+                catch (Exception e)
                 {
-                    continue;
+                    throw new InvalidOperationException(
+                        $"Failed to inspect custom command assembly '{assembly.FullName}'.",
+                        e);
                 }
 
                 if (types == null)
                 {
-                    continue;
+                    throw new InvalidOperationException(
+                        $"Custom command assembly '{assembly.FullName}' returned no type set.");
                 }
 
+                Array.Sort(types, CompareTypes);
                 foreach (var type in types)
                 {
-                    if (type == null || !type.IsClass)
+                    if (type == null)
+                    {
+                        throw new InvalidOperationException(
+                            $"Custom command assembly '{assembly.FullName}' returned a "
+                            + "partial type set.");
+                    }
+
+                    if (!type.IsClass)
                     {
                         continue;
                     }
 
-                    RegisterAttributedHandlersFromType(type);
+                    RegisterAttributedHandlersFromType(type, RegistryPartition.Custom);
                 }
             }
         }
 
-        private void RegisterAttributedHandlersFromType(Type ownerType)
+        private void RegisterAttributedHandlersFromType(
+            Type ownerType,
+            RegistryPartition registryPartition)
         {
             var methods = ownerType.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+            Array.Sort(methods, CompareMethods);
             foreach (var method in methods)
             {
                 var attribute = method.GetCustomAttribute<CommandActionAttribute>();
@@ -169,8 +242,10 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
                     continue;
                 }
 
-                var (invoker, arguments) = CommandHandlerBindingFactory.Create(ownerType, method, attribute);
-                m_Registry.Register(BuildDescriptor(ownerType, method, attribute, arguments), invoker);
+                var binding = CommandHandlerBindingFactory.Create(ownerType, method, attribute);
+                m_Registry.Register(
+                    BuildDescriptor(ownerType, method, attribute, binding, registryPartition),
+                    binding.invoker);
             }
         }
 
@@ -180,8 +255,14 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
             return m_Dispatcher.Dispatch(m_Registry, invocation);
         }
 
-        private static CommandDescriptor BuildDescriptor(Type ownerType, MethodInfo method, CommandActionAttribute attribute, CommandArgumentDescriptor[] arguments)
+        private static CommandDescriptor BuildDescriptor(
+            Type ownerType,
+            MethodInfo method,
+            CommandActionAttribute attribute,
+            CommandHandlerBinding binding,
+            RegistryPartition registryPartition)
         {
+            binding ??= new CommandHandlerBinding();
             return new CommandDescriptor
             {
                 id = BuildId(attribute.commandNamespace, attribute.action),
@@ -192,8 +273,11 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
                 runOnMainThread = attribute.runOnMainThread,
                 declaringType = ownerType?.FullName ?? "",
                 methodName = method?.Name ?? "",
-                commandType = attribute.commandType == CommandType.Custom ? "custom" : "builtin",
-                arguments = arguments ?? Array.Empty<CommandArgumentDescriptor>()
+                partition = RegistryPartitionProtocol.ToWireName(registryPartition),
+                requiresSessionId = attribute.requiresSessionId,
+                arguments = binding.arguments ?? Array.Empty<CommandArgumentDescriptor>(),
+                result = binding.result ?? new CommandValueSchema(),
+                rules = binding.rules ?? Array.Empty<CommandContractRule>()
             };
         }
 
@@ -204,7 +288,12 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
                 return false;
             }
 
-            var assemblyName = assembly.GetName().Name ?? "";
+            if (assembly.IsDynamic)
+            {
+                return false;
+            }
+
+            var assemblyName = GetAssemblySimpleName(assembly);
             if (assemblyName == "Zh1Zh1.CSharpConsole.Runtime")
             {
                 return false;
@@ -230,8 +319,9 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
                 }
                 catch (Exception e)
                 {
-                    Debug.LogWarning($"[CSharpConsole] Command assembly filter failed for {assembly.FullName}: {e.Message}");
-                    return false;
+                    throw new InvalidOperationException(
+                        $"Command assembly filter failed for '{assembly.FullName}'.",
+                        e);
                 }
             }
 
@@ -321,20 +411,185 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
             return $"{commandNamespace ?? ""}/{action ?? ""}";
         }
 
+        private static int CompareAssemblies(Assembly left, Assembly right)
+        {
+            var comparison = string.CompareOrdinal(
+                left?.GetName().Name ?? "",
+                right?.GetName().Name ?? "");
+            if (comparison != 0)
+            {
+                return comparison;
+            }
+
+            comparison = string.CompareOrdinal(left?.FullName ?? "", right?.FullName ?? "");
+            if (comparison != 0)
+            {
+                return comparison;
+            }
+
+            return string.CompareOrdinal(
+                GetModuleVersionId(left),
+                GetModuleVersionId(right));
+        }
+
+        private static int CompareTypes(Type left, Type right)
+        {
+            var comparison = string.CompareOrdinal(
+                GetStableTypeName(left),
+                GetStableTypeName(right));
+            if (comparison != 0)
+            {
+                return comparison;
+            }
+
+            return string.CompareOrdinal(
+                left?.Assembly?.GetName().Name ?? "",
+                right?.Assembly?.GetName().Name ?? "");
+        }
+
+        private static int CompareMethods(MethodInfo left, MethodInfo right)
+        {
+            var comparison = string.CompareOrdinal(left?.Name ?? "", right?.Name ?? "");
+            if (comparison != 0)
+            {
+                return comparison;
+            }
+
+            comparison = CompareMethodGenericArity(left, right);
+            if (comparison != 0)
+            {
+                return comparison;
+            }
+
+            var leftParameters = left?.GetParameters() ?? Array.Empty<ParameterInfo>();
+            var rightParameters = right?.GetParameters() ?? Array.Empty<ParameterInfo>();
+            comparison = leftParameters.Length.CompareTo(rightParameters.Length);
+            if (comparison != 0)
+            {
+                return comparison;
+            }
+
+            for (var index = 0; index < leftParameters.Length; index++)
+            {
+                comparison = string.CompareOrdinal(
+                    GetStableTypeName(leftParameters[index]?.ParameterType),
+                    GetStableTypeName(rightParameters[index]?.ParameterType));
+                if (comparison != 0)
+                {
+                    return comparison;
+                }
+
+                comparison = string.CompareOrdinal(
+                    leftParameters[index]?.Name ?? "",
+                    rightParameters[index]?.Name ?? "");
+                if (comparison != 0)
+                {
+                    return comparison;
+                }
+
+                comparison = (leftParameters[index]?.IsOut ?? false).CompareTo(
+                    rightParameters[index]?.IsOut ?? false);
+                if (comparison != 0)
+                {
+                    return comparison;
+                }
+            }
+
+            return string.CompareOrdinal(
+                GetStableTypeName(left?.ReturnType),
+                GetStableTypeName(right?.ReturnType));
+        }
+
+        private static int CompareMethodGenericArity(MethodInfo left, MethodInfo right)
+        {
+            var leftArity = left?.IsGenericMethod == true
+                ? left.GetGenericArguments().Length
+                : 0;
+            var rightArity = right?.IsGenericMethod == true
+                ? right.GetGenericArguments().Length
+                : 0;
+            return leftArity.CompareTo(rightArity);
+        }
+
+        private static string GetStableTypeName(Type type)
+        {
+            return type?.FullName ?? type?.Name ?? "";
+        }
+
+        private static string GetModuleVersionId(Assembly assembly)
+        {
+            if (assembly == null || assembly.IsDynamic)
+            {
+                return "";
+            }
+
+            try
+            {
+                return assembly.ManifestModule.ModuleVersionId.ToString("N");
+            }
+            catch
+            {
+                return "";
+            }
+        }
+
+        private static void OnAssemblyLoad(object sender, AssemblyLoadEventArgs eventArgs)
+        {
+            if (CanAffectCustomDiscovery(eventArgs?.LoadedAssembly))
+            {
+                Interlocked.Increment(ref s_AssemblyEpoch);
+            }
+        }
+
+        private static long ReadAssemblyEpoch()
+        {
+            return Interlocked.Read(ref s_AssemblyEpoch);
+        }
+
+        private static bool CanAffectCustomDiscovery(Assembly assembly)
+        {
+            if (assembly == null || assembly.IsDynamic)
+            {
+                return false;
+            }
+
+            var assemblyName = GetAssemblySimpleName(assembly);
+            if (assemblyName == "Zh1Zh1.CSharpConsole.Runtime"
+                || assemblyName.EndsWith(".Tests", StringComparison.Ordinal)
+                || assemblyName.EndsWith(".Test", StringComparison.Ordinal)
+                || (assemblyName.StartsWith("Unity.", StringComparison.Ordinal)
+                    && !assemblyName.StartsWith(
+                        "UnityEditor.",
+                        StringComparison.Ordinal))
+                || assemblyName.StartsWith("UnityEngine.", StringComparison.Ordinal)
+                || assemblyName.StartsWith("System.", StringComparison.Ordinal)
+                || assemblyName.StartsWith("mscorlib", StringComparison.Ordinal)
+                || assemblyName.StartsWith("netstandard", StringComparison.Ordinal)
+                || assemblyName.StartsWith(
+                    "nunit.",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            return ReferencesRuntimeAssembly(assembly);
+        }
+
+        private static string GetAssemblySimpleName(Assembly assembly)
+        {
+            try
+            {
+                return assembly?.GetName().Name ?? "";
+            }
+            catch
+            {
+                return "";
+            }
+        }
+
         private static Func<Func<CommandResponse>, CommandResponse> BuildMainThreadRunner()
         {
             return work => MainThreadRequestRunner.RunOnMainThread(work);
         }
-
-        private static bool ShouldRetryDiscovery()
-        {
-            if (s_DiscoveryFailedTimestamp < 0.0)
-            {
-                return true;
-            }
-
-            return (ServiceTimestamp.Now() - s_DiscoveryFailedTimestamp) >= DISCOVERY_RETRY_COOLDOWN_SECONDS;
-        }
-
     }
 }

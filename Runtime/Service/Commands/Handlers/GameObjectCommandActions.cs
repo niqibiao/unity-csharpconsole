@@ -35,10 +35,10 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         private sealed class TransformInfo
         {
             public Vector3 localPosition;
-            public Vector3 localRotation;
+            public Vector3 localEulerAngles;
             public Vector3 localScale;
             public Vector3 position;
-            public Vector3 rotation;
+            public Vector3 eulerAngles;
         }
 
         [Serializable]
@@ -57,7 +57,12 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public GameObjectInfo[] gameObjects = Array.Empty<GameObjectInfo>();
         }
 
-        [CommandAction("gameobject", "find", editorOnly: true, summary: "Find GameObjects by name, tag, or component type")]
+        [CommandAction(
+            "gameobject",
+            "find",
+            editorOnly: true,
+            summary: "Find GameObjects by name, tag, or component type",
+            resultType: typeof(FindResult))]
         private static CommandResponse Find(string name = "", string tag = "", string componentType = "")
         {
             return CommandHelpers.RunCommand<FindResult>(
@@ -152,8 +157,28 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public string path = "";
         }
 
-        [CommandAction("gameobject", "create", editorOnly: true, summary: "Create a new GameObject (empty or primitive)")]
-        private static CommandResponse Create(string name = "", string primitiveType = "", string parentPath = "")
+        [CommandAction(
+            "gameobject",
+            "create",
+            editorOnly: true,
+            summary: "Create a new GameObject (empty or primitive)",
+            resultType: typeof(CreateResult))]
+        private static CommandResponse Create(
+            string name = "",
+            [CommandArgument(
+                AllowedValues = new[]
+                {
+                    "",
+                    "Cube",
+                    "Sphere",
+                    "Capsule",
+                    "Cylinder",
+                    "Plane",
+                    "Quad"
+                },
+                AllowedValuesIgnoreCase = true)]
+            string primitiveType = "",
+            string parentPath = "")
         {
             return CommandHelpers.RunCommand<CreateResult>(
                 () =>
@@ -207,7 +232,13 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public bool destroyed;
         }
 
-        [CommandAction("gameobject", "destroy", editorOnly: true, summary: "Destroy a GameObject")]
+        [CommandAction(
+            "gameobject",
+            "destroy",
+            editorOnly: true,
+            summary: "Destroy a GameObject",
+            resultType: typeof(DestroyResult))]
+        [CommandRule(CommandRuleKind.ExactlyOneOf, "path", "instanceId")]
         private static CommandResponse Destroy(string path = "", int instanceId = 0)
         {
             return CommandHelpers.RunCommand<DestroyResult>(
@@ -241,11 +272,18 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public int layer;
             public bool activeSelf;
             public bool activeInHierarchy;
+            public bool isStatic;
             public TransformInfo transform = new TransformInfo();
             public ComponentInfo[] components = Array.Empty<ComponentInfo>();
         }
 
-        [CommandAction("gameobject", "get", editorOnly: true, summary: "Get detailed info about a GameObject")]
+        [CommandAction(
+            "gameobject",
+            "get",
+            editorOnly: true,
+            summary: "Get detailed info about a GameObject",
+            resultType: typeof(GetResult))]
+        [CommandRule(CommandRuleKind.ExactlyOneOf, "path", "instanceId")]
         private static CommandResponse Get(string path = "", int instanceId = 0)
         {
             return CommandHelpers.RunCommand<GetResult>(
@@ -258,10 +296,10 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     var transformInfo = new TransformInfo
                     {
                         localPosition = t.localPosition,
-                        localRotation = t.localEulerAngles,
+                        localEulerAngles = t.localEulerAngles,
                         localScale = t.localScale,
                         position = t.position,
-                        rotation = t.eulerAngles
+                        eulerAngles = t.eulerAngles
                     };
 
                     var comps = go.GetComponents<Component>();
@@ -286,6 +324,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                         layer = go.layer,
                         activeSelf = go.activeSelf,
                         activeInHierarchy = go.activeInHierarchy,
+                        isStatic = go.isStatic,
                         transform = transformInfo,
                         components = compInfos.ToArray()
                     });
@@ -304,15 +343,28 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public string path = "";
         }
 
-        [CommandAction("gameobject", "modify", editorOnly: true, summary: "Modify a GameObject's basic properties")]
+        [CommandAction(
+            "gameobject",
+            "modify",
+            editorOnly: true,
+            summary: "Modify a GameObject's basic properties",
+            resultType: typeof(ModifyResult))]
+        [CommandRule(CommandRuleKind.ExactlyOneOf, "path", "instanceId")]
+        [CommandRule(
+            CommandRuleKind.AtLeastOneMutation,
+            "name",
+            "tag",
+            "layer",
+            "active",
+            "isStatic")]
         private static CommandResponse Modify(
             string path = "",
             int instanceId = 0,
             string name = "",
             string tag = "",
-            int layer = -1,
-            int active = -1,
-            int isStatic = -1)
+            [CommandArgument(Minimum = 0, Maximum = 31)] int? layer = null,
+            bool? active = null,
+            bool? isStatic = null)
         {
             return CommandHelpers.RunCommand<ModifyResult>(
                 () =>
@@ -324,9 +376,9 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 
                     if (!string.IsNullOrEmpty(name)) go.name = name;
                     if (!string.IsNullOrEmpty(tag)) go.tag = tag;
-                    if (layer >= 0) go.layer = layer;
-                    if (active >= 0) go.SetActive(active != 0);
-                    if (isStatic >= 0) go.isStatic = isStatic != 0;
+                    if (layer.HasValue) go.layer = layer.Value;
+                    if (active.HasValue) go.SetActive(active.Value);
+                    if (isStatic.HasValue) go.isStatic = isStatic.Value;
 
                     return (error: (string)null, result: new ModifyResult
                     {
@@ -349,7 +401,17 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public string newPath = "";
         }
 
-        [CommandAction("gameobject", "set_parent", editorOnly: true, summary: "Change a GameObject's parent")]
+        [CommandAction(
+            "gameobject",
+            "set_parent",
+            editorOnly: true,
+            summary: "Change a GameObject's parent",
+            resultType: typeof(SetParentResult))]
+        [CommandRule(CommandRuleKind.ExactlyOneOf, "path", "instanceId")]
+        [CommandRule(
+            CommandRuleKind.AtMostOneOf,
+            "parentPath",
+            "parentInstanceId")]
         private static CommandResponse SetParent(
             string path = "",
             int instanceId = 0,
@@ -406,7 +468,13 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public string path = "";
         }
 
-        [CommandAction("gameobject", "duplicate", editorOnly: true, summary: "Duplicate a GameObject")]
+        [CommandAction(
+            "gameobject",
+            "duplicate",
+            editorOnly: true,
+            summary: "Duplicate a GameObject",
+            resultType: typeof(DuplicateResult))]
+        [CommandRule(CommandRuleKind.ExactlyOneOf, "path", "instanceId")]
         private static CommandResponse Duplicate(string path = "", int instanceId = 0, string newName = "")
         {
             return CommandHelpers.RunCommand<DuplicateResult>(

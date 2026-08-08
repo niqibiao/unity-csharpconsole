@@ -6,6 +6,7 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 #endif
 using Zh1Zh1.CSharpConsole.Service.Commands.Core;
+using Zh1Zh1.CSharpConsole.Service.Commands.Routing;
 
 namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 {
@@ -227,6 +228,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [Serializable]
         internal sealed class FieldPair
         {
+            [CommandField(NonEmpty = true)]
             public string name = "";
             public string value = "";
         }

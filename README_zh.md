@@ -5,7 +5,7 @@
 **Unity 交互式 C# REPL — 基于 Roslyn**
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Unity](https://img.shields.io/badge/Unity-2020.3%2B-black.svg?logo=unity)](https://unity.com/)
+[![Unity](https://img.shields.io/badge/Unity-2022-black.svg?logo=unity)](https://unity.com/)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-blueviolet.svg?logo=anthropic)](https://claude.ai/code)
 [![UPM](https://img.shields.io/badge/UPM-Package-brightgreen.svg)](package.json)
 
@@ -206,14 +206,14 @@ Tab 补全支持命令名和参数名。
 
 ## 📋 内置 Action
 
-13 个命名空间，59 个内置命令，覆盖编辑器控制、场景操作、资产管理等常见场景。
+13 个命名空间，57 个内置命令，覆盖编辑器控制、场景操作、资产管理等常见场景。
 
 | 命名空间 | Action | 说明 |
 |----------|--------|------|
 | **gameobject** | `find` | 按名称、标签或组件类型查找 GameObject |
 | | `create` | 创建新 GameObject（空对象或基本体） |
 | | `destroy` | 销毁 GameObject |
-| | `get` | 获取 GameObject 详细信息 |
+| | `get` | 获取 GameObject、Transform、组件与静态状态详情 |
 | | `modify` | 修改名称、标签、层级、激活状态或静态标记 |
 | | `set_parent` | 更改 GameObject 的父级 |
 | | `duplicate` | 复制 GameObject |
@@ -221,8 +221,7 @@ Tab 补全支持命令名和参数名。
 | | `remove` | 从 GameObject 移除组件 |
 | | `get` | 获取组件的序列化字段数据 |
 | | `modify` | 修改组件的序列化字段 |
-| **transform** | `get` | 获取位置、旋转和缩放 |
-| | `set` | 设置位置、旋转和/或缩放（本地或世界坐标） |
+| **transform** | `set` | 设置位置、旋转和/或缩放（本地或世界坐标） |
 | **scene** | `hierarchy` | 获取完整场景层级树，可选包含组件信息 |
 | **prefab** | `create` | 从场景 GameObject 创建 Prefab 资产 |
 | | `instantiate` | 将 Prefab 实例化到当前场景 |
@@ -236,12 +235,9 @@ Tab 补全支持命令名和参数名。
 | | `stop` | 停止 Profiler 录制 |
 | | `status` | 获取当前 Profiler 状态 |
 | | `save` | 将录制的性能数据保存为 `.raw` 文件 |
-| **editor** | `status` | 获取编辑器状态和播放模式信息 |
-| | `playmode.status` | 获取当前播放模式状态 |
+| **editor** | `status` | 获取编辑器、播放模式与切换状态 |
 | | `playmode.enter` | 进入播放模式 |
 | | `playmode.exit` | 退出播放模式 |
-| | `menu.open` | 通过路径执行菜单项 |
-| | `window.open` | 通过类型名打开编辑器窗口 |
 | | `console.clear` | 清空编辑器控制台 |
 | | `console.mark` | 向编辑器日志写入可搜索标记并返回日志文件路径 |
 | **project** | `scene.list` | 列出项目中所有场景 |
@@ -273,7 +269,7 @@ Tab 补全支持命令名和参数名。
 
 | 依赖 | 版本 |
 |------|------|
-| Unity | 2020.3+ |
+| Unity | 2022 |
 | Python | 3.7+（系统 PATH 可访问） |
 | Windows Terminal | 可选（不可用时回退到直接启动 Python） |
 

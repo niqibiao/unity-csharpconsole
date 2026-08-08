@@ -5,7 +5,7 @@
 **Interactive C# REPL for Unity — powered by Roslyn**
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Unity](https://img.shields.io/badge/Unity-2020.3%2B-black.svg?logo=unity)](https://unity.com/)
+[![Unity](https://img.shields.io/badge/Unity-2022-black.svg?logo=unity)](https://unity.com/)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-blueviolet.svg?logo=anthropic)](https://claude.ai/code)
 [![UPM](https://img.shields.io/badge/UPM-Package-brightgreen.svg)](package.json)
 
@@ -206,14 +206,14 @@ Tab completion works for both command names and argument names.
 
 ## 📋 Built-in Actions
 
-59 built-in commands across 13 namespaces, covering editor control, scene manipulation, asset management, and more.
+57 built-in commands across 13 namespaces, covering editor control, scene manipulation, asset management, and more.
 
 | Namespace | Action | Description |
 |-----------|--------|-------------|
 | **gameobject** | `find` | Find GameObjects by name, tag, or component type |
 | | `create` | Create a new GameObject (empty or primitive) |
 | | `destroy` | Destroy a GameObject |
-| | `get` | Get detailed info about a GameObject |
+| | `get` | Get detailed GameObject, transform, component, and static-state info |
 | | `modify` | Change name, tag, layer, active state, or static flag |
 | | `set_parent` | Reparent a GameObject |
 | | `duplicate` | Duplicate a GameObject |
@@ -221,8 +221,7 @@ Tab completion works for both command names and argument names.
 | | `remove` | Remove a component from a GameObject |
 | | `get` | Get serialized field data of a component |
 | | `modify` | Modify serialized fields of a component |
-| **transform** | `get` | Get position, rotation, and scale |
-| | `set` | Set position, rotation, and/or scale (local or world) |
+| **transform** | `set` | Set position, rotation, and/or scale (local or world) |
 | **scene** | `hierarchy` | Get the full scene hierarchy tree, optionally with component info |
 | **prefab** | `create` | Create a prefab asset from a scene GameObject |
 | | `instantiate` | Instantiate a prefab into the active scene |
@@ -236,12 +235,9 @@ Tab completion works for both command names and argument names.
 | | `stop` | Stop Profiler recording |
 | | `status` | Get current Profiler state |
 | | `save` | Save recorded profiler data to a `.raw` file |
-| **editor** | `status` | Get editor state and play mode info |
-| | `playmode.status` | Get current play mode state |
+| **editor** | `status` | Get editor, play-mode, and transition state |
 | | `playmode.enter` | Enter play mode |
 | | `playmode.exit` | Exit play mode |
-| | `menu.open` | Execute a menu item by path |
-| | `window.open` | Open an editor window by type name |
 | | `console.clear` | Clear the editor console |
 | | `console.mark` | Write a searchable marker into the editor log and return the log file path |
 | **project** | `scene.list` | List all scenes in the project |
@@ -273,7 +269,7 @@ See the full guide: **[Extending Commands](Docs~/ExtendingCommands.md)**
 
 | Dependency | Version |
 |------------|---------|
-| Unity | 2020.3+ |
+| Unity | 2022 |
 | Python | 3.7+ (on system `PATH`) |
 | Windows Terminal | Optional (falls back to Python directly) |
 

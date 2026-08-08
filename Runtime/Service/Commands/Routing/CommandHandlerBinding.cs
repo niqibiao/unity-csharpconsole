@@ -6,27 +6,65 @@ using Zh1Zh1.CSharpConsole.Service.Commands.Core;
 
 namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
 {
+    internal sealed class CommandHandlerBinding
+    {
+        internal Func<CommandInvocation, CommandResponse> invoker;
+        internal CommandArgumentDescriptor[] arguments = Array.Empty<CommandArgumentDescriptor>();
+        internal CommandValueSchema result = new CommandValueSchema();
+        internal CommandContractRule[] rules = Array.Empty<CommandContractRule>();
+    }
+
     internal static class CommandHandlerBindingFactory
     {
         private readonly static Type s_BoolStringTupleType = typeof(ValueTuple<bool, string>);
 
-        internal static (Func<CommandInvocation, CommandResponse> invoker, CommandArgumentDescriptor[] arguments) Create(Type ownerType, MethodInfo method, CommandActionAttribute attribute)
+        internal static CommandHandlerBinding Create(
+            Type ownerType,
+            MethodInfo method,
+            CommandActionAttribute attribute)
         {
             ValidateHandlerSignature(ownerType, method, attribute);
 
             var parameters = method.GetParameters();
             var boundParameters = CollectBoundParameters(ownerType, method, parameters);
             var returnType = method.ReturnType;
+            var contract = CommandContractCompiler.Compile(
+                ownerType,
+                method,
+                attribute,
+                boundParameters);
 
-            return (
-                invocation => Invoke(method, parameters, returnType, invocation),
-                BuildArgumentDescriptors(boundParameters)
-            );
+            return new CommandHandlerBinding
+            {
+                invoker = invocation => Invoke(
+                    method,
+                    parameters,
+                    returnType,
+                    invocation,
+                    contract,
+                    attribute.requiresSessionId),
+                arguments = contract.arguments,
+                result = contract.result,
+                rules = contract.rules
+            };
         }
 
-        private static CommandResponse Invoke(MethodInfo method, ParameterInfo[] parameters, Type returnType, CommandInvocation invocation)
+        private static CommandResponse Invoke(
+            MethodInfo method,
+            ParameterInfo[] parameters,
+            Type returnType,
+            CommandInvocation invocation,
+            CompiledCommandContract contract,
+            bool requiresSessionId)
         {
-            if (!CommandArgumentBinder.TryBind(invocation, parameters, out var arguments, out var errorResponse))
+            if (!CommandArgumentBinder.TryBind(
+                    invocation,
+                    parameters,
+                    contract?.arguments,
+                    contract?.rules,
+                    requiresSessionId,
+                    out var arguments,
+                    out var errorResponse))
             {
                 return errorResponse;
             }
@@ -72,6 +110,13 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
             {
                 throw new InvalidOperationException($"Command action attribute requires non-empty namespace/action: {ownerType.FullName}.{method.Name}");
             }
+
+            if (method.ReturnType == s_BoolStringTupleType && attribute.resultType != null)
+            {
+                throw new InvalidOperationException(
+                    $"Tuple command action handler cannot declare resultType: "
+                    + $"{ownerType.FullName}.{method.Name}");
+            }
         }
 
         private static ParameterInfo[] CollectBoundParameters(Type ownerType, MethodInfo method, ParameterInfo[] parameters)
@@ -110,27 +155,6 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
             }
 
             return boundParameters.ToArray();
-        }
-
-        private static CommandArgumentDescriptor[] BuildArgumentDescriptors(ParameterInfo[] boundParameters)
-        {
-            if (boundParameters == null || boundParameters.Length == 0)
-            {
-                return Array.Empty<CommandArgumentDescriptor>();
-            }
-
-            var descriptors = new CommandArgumentDescriptor[boundParameters.Length];
-            for (var i = 0; i < boundParameters.Length; i++)
-            {
-                var parameter = boundParameters[i];
-                descriptors[i] = new CommandArgumentDescriptor
-                {
-                    name = parameter.Name ?? "",
-                    typeName = parameter.ParameterType.FullName ?? parameter.ParameterType.Name ?? ""
-                };
-            }
-
-            return descriptors;
         }
     }
 }

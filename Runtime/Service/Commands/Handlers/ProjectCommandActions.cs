@@ -86,7 +86,12 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public bool exists;
         }
 
-        [CommandAction("project", "scene.list", editorOnly: true, summary: "List all scenes in the project")]
+        [CommandAction(
+            "project",
+            "scene.list",
+            editorOnly: true,
+            summary: "List all scenes in the project",
+            resultType: typeof(SceneListResult))]
         private static CommandResponse SceneList()
         {
             var guids = AssetDatabase.FindAssets("t:Scene");
@@ -110,8 +115,18 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             return CommandResponseFactory.Ok($"Listed {result.scenes.Length} scene(s)", JsonUtility.ToJson(result));
         }
 
-        [CommandAction("project", "scene.open", editorOnly: true, summary: "Open a scene by path")]
-        private static CommandResponse SceneOpen(string scenePath, string mode = "single")
+        [CommandAction(
+            "project",
+            "scene.open",
+            editorOnly: true,
+            summary: "Open a scene by path",
+            resultType: typeof(SceneOpenResult))]
+        private static CommandResponse SceneOpen(
+            [CommandArgument(NonEmpty = true)] string scenePath,
+            [CommandArgument(
+                AllowedValues = new[] { "single", "additive" },
+                AllowedValuesIgnoreCase = true)]
+            string mode = "single")
         {
             if (string.IsNullOrEmpty(scenePath))
             {
@@ -155,31 +170,32 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             return CommandResponseFactory.Ok($"Opened scene '{result.openedPath}'", JsonUtility.ToJson(result));
         }
 
-        [CommandAction("project", "scene.save", editorOnly: true, summary: "Save the current scene")]
-        private static CommandResponse SceneSave(string scenePath = "", bool saveAsCopy = false)
+        [CommandAction(
+            "project",
+            "scene.save",
+            editorOnly: true,
+            summary: "Save the current scene",
+            resultType: typeof(SceneSaveResult))]
+        private static CommandResponse SceneSave(
+            [CommandArgument(NonEmpty = true)] string scenePath,
+            bool saveAsCopy = false)
         {
-            var targetScenePath = scenePath;
-            if (string.IsNullOrEmpty(targetScenePath))
+            if (string.IsNullOrEmpty(scenePath))
             {
-                var active = EditorSceneManager.GetActiveScene();
-                var activePath = active.path ?? "";
-                if (string.IsNullOrEmpty(activePath))
-                {
-                    return CommandResponseFactory.ValidationError("scenePath is required for project/scene.save when active scene has no saved path");
-                }
-
-                targetScenePath = activePath;
+                return CommandResponseFactory.ValidationError(
+                    "scenePath is required for project/scene.save");
             }
 
             var activeScene = EditorSceneManager.GetActiveScene();
-            var saved = string.IsNullOrEmpty(scenePath)
-                ? EditorSceneManager.SaveScene(activeScene)
-                : EditorSceneManager.SaveScene(activeScene, scenePath, saveAsCopy);
+            var saved = EditorSceneManager.SaveScene(
+                activeScene,
+                scenePath,
+                saveAsCopy);
 
             var result = new SceneSaveResult
             {
                 saved = saved,
-                scenePath = targetScenePath,
+                scenePath = scenePath,
                 saveAsCopy = saveAsCopy
             };
 
@@ -188,7 +204,12 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 : CommandResponseFactory.ValidationError($"Failed to save scene '{result.scenePath}'");
         }
 
-        [CommandAction("project", "selection.get", editorOnly: true, summary: "Get the current editor selection")]
+        [CommandAction(
+            "project",
+            "selection.get",
+            editorOnly: true,
+            summary: "Get the current editor selection",
+            resultType: typeof(SelectionGetResult))]
         private static CommandResponse SelectionGet()
         {
             var objects = Selection.objects ?? Array.Empty<UnityEngine.Object>();
@@ -231,7 +252,12 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             return CommandResponseFactory.Ok($"Selected {result.objects.Length} object(s)", JsonUtility.ToJson(result));
         }
 
-        [CommandAction("project", "selection.set", editorOnly: true, summary: "Set the editor selection by name or path")]
+        [CommandAction(
+            "project",
+            "selection.set",
+            editorOnly: true,
+            summary: "Set the editor selection by name or path",
+            resultType: typeof(SelectionSetResult))]
         private static CommandResponse SelectionSet(int[] instanceIds = null, string[] assetPaths = null)
         {
             var selected = new List<UnityEngine.Object>();
@@ -284,7 +310,12 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             return CommandResponseFactory.Ok($"Selected {result.count} object(s)", JsonUtility.ToJson(result));
         }
 
-        [CommandAction("project", "asset.list", editorOnly: true, summary: "List assets by type filter")]
+        [CommandAction(
+            "project",
+            "asset.list",
+            editorOnly: true,
+            summary: "List assets by type filter",
+            resultType: typeof(AssetListResult))]
         private static CommandResponse AssetList(string filter = "", string[] folders = null)
         {
             var normalizedFilter = filter ?? "";
@@ -312,14 +343,28 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             return CommandResponseFactory.Ok($"Listed {result.assetPaths.Length} asset(s)", JsonUtility.ToJson(result));
         }
 
-        [CommandAction("project", "asset.import", editorOnly: true, summary: "Import an asset by path")]
-        private static CommandResponse AssetImport(string assetPath, bool forceSynchronousImport = false)
+        [CommandAction(
+            "project",
+            "asset.import",
+            editorOnly: true,
+            summary: "Import an asset by path",
+            resultType: typeof(AssetImportResult))]
+        private static CommandResponse AssetImport(
+            [CommandArgument(NonEmpty = true)] string assetPath,
+            bool forceSynchronousImport = false)
         {
             return BuildAssetImportResponse("asset.import", assetPath, forceSynchronousImport, forceReimport: false);
         }
 
-        [CommandAction("project", "asset.reimport", editorOnly: true, summary: "Reimport an asset by path")]
-        private static CommandResponse AssetReimport(string assetPath, bool forceSynchronousImport = false)
+        [CommandAction(
+            "project",
+            "asset.reimport",
+            editorOnly: true,
+            summary: "Reimport an asset by path",
+            resultType: typeof(AssetImportResult))]
+        private static CommandResponse AssetReimport(
+            [CommandArgument(NonEmpty = true)] string assetPath,
+            bool forceSynchronousImport = false)
         {
             return BuildAssetImportResponse("asset.reimport", assetPath, forceSynchronousImport, forceReimport: true);
         }

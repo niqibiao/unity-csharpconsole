@@ -1,5 +1,4 @@
 using System;
-using Zh1Zh1.CSharpConsole.Service.Commands.Core;
 
 namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
 {
@@ -11,7 +10,8 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
         public bool editorOnly { get; }
         public bool runOnMainThread { get; }
         public string summary { get; }
-        public CommandType commandType { get; }
+        public Type resultType { get; }
+        public bool requiresSessionId { get; }
 
         // Default runOnMainThread: true so user extensions are safe by default.
         public CommandActionAttribute(
@@ -20,14 +20,16 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
             bool editorOnly = false,
             bool runOnMainThread = true,
             string summary = "",
-            CommandType commandType = CommandType.Builtin)
+            Type resultType = null,
+            bool requiresSessionId = false)
         {
             this.commandNamespace = commandNamespace ?? "";
             this.action = action ?? "";
             this.editorOnly = editorOnly;
             this.runOnMainThread = runOnMainThread;
             this.summary = summary ?? "";
-            this.commandType = commandType;
+            this.resultType = resultType;
+            this.requiresSessionId = requiresSessionId;
         }
     }
 }

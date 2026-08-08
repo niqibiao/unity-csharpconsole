@@ -36,7 +36,11 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             router.RegisterAttributedHandlers(typeof(SessionCommandActions));
         }
 
-        [CommandAction("session", "list", summary: "List active REPL sessions")]
+        [CommandAction(
+            "session",
+            "list",
+            summary: "List active REPL sessions",
+            resultType: typeof(SessionListResult))]
         private static CommandResponse ListSessionsCommand()
         {
             var sessions = ConsoleHttpService.ListSessions();
@@ -48,7 +52,12 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             return CommandResponseFactory.Ok($"Listed {payload.sessions.Length} session(s)", JsonUtility.ToJson(payload));
         }
 
-        [CommandAction("session", "inspect", summary: "Inspect a session's state")]
+        [CommandAction(
+            "session",
+            "inspect",
+            summary: "Inspect a session's state",
+            resultType: typeof(SessionInspectResult),
+            requiresSessionId: true)]
         private static CommandResponse InspectSessionCommand(CommandInvocation invocation)
         {
             var sessionId = invocation?.sessionId ?? "";
@@ -73,7 +82,12 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 JsonUtility.ToJson(payload));
         }
 
-        [CommandAction("session", "reset", summary: "Reset a session's compiler and executor")]
+        [CommandAction(
+            "session",
+            "reset",
+            summary: "Reset a session's compiler and executor",
+            resultType: typeof(SessionResetResult),
+            requiresSessionId: true)]
         private static CommandResponse ResetSessionCommand(CommandInvocation invocation)
         {
             var sessionId = invocation?.sessionId ?? "";

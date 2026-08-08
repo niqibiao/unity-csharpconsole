@@ -51,17 +51,39 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
         internal static bool TryBind(
             CommandInvocation invocation,
             ParameterInfo[] parameters,
+            CommandArgumentDescriptor[] contractArguments,
+            CommandContractRule[] rules,
+            bool requiresSessionId,
             out object[] arguments,
             out CommandResponse errorResponse)
         {
             invocation ??= new CommandInvocation();
             parameters ??= Array.Empty<ParameterInfo>();
+            contractArguments ??= Array.Empty<CommandArgumentDescriptor>();
+            rules ??= Array.Empty<CommandContractRule>();
 
             arguments = new object[parameters.Length];
             errorResponse = null;
 
-            Dictionary<string, string> argsByName = null;
+            if (requiresSessionId && string.IsNullOrWhiteSpace(invocation.sessionId))
+            {
+                errorResponse = CommandResponseFactory.ValidationError(
+                    invocation,
+                    $"Command requires a sessionId: {invocation.commandNamespace}/{invocation.action}");
+                return false;
+            }
+
+            if (!TryParseArgsObject(invocation.argsJson, out var argsByName, out var parseError))
+            {
+                errorResponse = CommandResponseFactory.ValidationError(invocation, parseError);
+                return false;
+            }
+
+            var consumedArgumentNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var suppliedArguments = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var boundValues = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
             var positionalIndex = 0;
+            var contractIndex = 0;
             for (var i = 0; i < parameters.Length; i++)
             {
                 var parameter = parameters[i];
@@ -76,23 +98,33 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
                     continue;
                 }
 
-                if (argsByName == null
-                    && !TryParseArgsObject(invocation.argsJson, out argsByName, out var parseError))
+                if (contractIndex >= contractArguments.Length)
                 {
-                    errorResponse = CommandResponseFactory.ValidationError(invocation, parseError);
-                    return false;
+                    throw new InvalidOperationException(
+                        $"Missing compiled contract for parameter '{parameter.Name}'");
                 }
 
-                if (!argsByName.TryGetValue(parameter.Name ?? string.Empty, out var rawValue))
+                var contractArgument = contractArguments[contractIndex++];
+                var argumentName = parameter.Name ?? string.Empty;
+                var supplied = argsByName.TryGetValue(argumentName, out var rawValue);
+                if (supplied)
+                {
+                    consumedArgumentNames.Add(argumentName);
+                }
+                else
                 {
                     var positionalKey = $"__pos{positionalIndex}";
                     if (argsByName.TryGetValue(positionalKey, out rawValue))
                     {
+                        supplied = true;
+                        consumedArgumentNames.Add(positionalKey);
                         positionalIndex++;
                     }
                     else if (parameter.HasDefaultValue)
                     {
-                        arguments[i] = GetDefaultValue(parameter);
+                        var defaultValue = GetDefaultValue(parameter);
+                        arguments[i] = defaultValue;
+                        boundValues[argumentName] = defaultValue;
                         continue;
                     }
                     else
@@ -104,7 +136,27 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
                     }
                 }
 
-                if (!TryConvertValue(rawValue, parameter.ParameterType, out var value, out var conversionError))
+                if (supplied)
+                {
+                    suppliedArguments.Add(argumentName);
+                }
+
+                if (!CommandJsonSchemaValidator.TryValidate(
+                        rawValue,
+                        contractArgument.schema,
+                        out var schemaError))
+                {
+                    errorResponse = CommandResponseFactory.ValidationError(
+                        invocation,
+                        $"Invalid argument '{parameter.Name}' for {invocation.commandNamespace}/{invocation.action}: {schemaError}");
+                    return false;
+                }
+
+                if (!TryConvertContractValue(
+                        rawValue,
+                        parameter.ParameterType,
+                        out var value,
+                        out var conversionError))
                 {
                     errorResponse = CommandResponseFactory.ValidationError(
                         invocation,
@@ -112,10 +164,306 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
                     return false;
                 }
 
+                if (!TryValidateContractValue(contractArgument, value, out var validationError))
+                {
+                    errorResponse = CommandResponseFactory.ValidationError(
+                        invocation,
+                        $"Invalid argument '{argumentName}' for {invocation.commandNamespace}/{invocation.action}: {validationError}");
+                    return false;
+                }
+
                 arguments[i] = value;
+                boundValues[argumentName] = value;
+            }
+
+            if (contractIndex != contractArguments.Length)
+            {
+                throw new InvalidOperationException(
+                    $"Compiled command contract has {contractArguments.Length - contractIndex} unbound argument(s)");
+            }
+
+            foreach (var argumentName in argsByName.Keys)
+            {
+                if (consumedArgumentNames.Contains(argumentName))
+                {
+                    continue;
+                }
+
+                errorResponse = CommandResponseFactory.ValidationError(
+                    invocation,
+                    $"Unknown argument '{argumentName}' for {invocation.commandNamespace}/{invocation.action}");
+                return false;
+            }
+
+            if (!TryValidateRules(
+                    contractArguments,
+                    rules,
+                    suppliedArguments,
+                    boundValues,
+                    out var ruleError))
+            {
+                errorResponse = CommandResponseFactory.ValidationError(invocation, ruleError);
+                return false;
             }
 
             return true;
+        }
+
+        internal static bool TryValidateContractValue(
+            CommandArgumentDescriptor descriptor,
+            object value,
+            out string error)
+        {
+            descriptor ??= new CommandArgumentDescriptor();
+            error = null;
+
+            if (value == null)
+            {
+                if (descriptor.schema?.nullable ?? false)
+                {
+                    return true;
+                }
+
+                error = "null is not allowed";
+                return false;
+            }
+
+            if (descriptor.nonEmpty)
+            {
+                if ((value is string text && string.IsNullOrWhiteSpace(text))
+                    || (value is System.Collections.ICollection collection && collection.Count == 0))
+                {
+                    error = "value must not be empty";
+                    return false;
+                }
+            }
+
+            if (descriptor.hasMinimum || descriptor.hasMaximum)
+            {
+                double numericValue;
+                try
+                {
+                    numericValue = Convert.ToDouble(value, CultureInfo.InvariantCulture);
+                }
+                catch
+                {
+                    error = "value must be numeric";
+                    return false;
+                }
+
+                if (descriptor.hasMinimum && numericValue < descriptor.minimum)
+                {
+                    error = $"value must be greater than or equal to {descriptor.minimum.ToString("R", CultureInfo.InvariantCulture)}";
+                    return false;
+                }
+
+                if (descriptor.hasMaximum && numericValue > descriptor.maximum)
+                {
+                    error = $"value must be less than or equal to {descriptor.maximum.ToString("R", CultureInfo.InvariantCulture)}";
+                    return false;
+                }
+            }
+
+            var allowedValues = descriptor.allowedValues ?? Array.Empty<string>();
+            if (allowedValues.Length > 0)
+            {
+                var comparison = descriptor.allowedValuesIgnoreCase
+                    ? StringComparison.OrdinalIgnoreCase
+                    : StringComparison.Ordinal;
+                string actual;
+                try
+                {
+                    actual = CommandAllowedValueCodec.Encode(value);
+                }
+                catch (Exception validationException)
+                {
+                    error = validationException.Message;
+                    return false;
+                }
+                var matched = false;
+                foreach (var allowedValue in allowedValues)
+                {
+                    if (string.Equals(actual, allowedValue ?? "", comparison))
+                    {
+                        matched = true;
+                        break;
+                    }
+                }
+
+                if (!matched)
+                {
+                    error = $"value must be one of: {string.Join(", ", allowedValues)}";
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static bool TryValidateRules(
+            CommandArgumentDescriptor[] arguments,
+            CommandContractRule[] rules,
+            HashSet<string> suppliedArguments,
+            Dictionary<string, object> boundValues,
+            out string error)
+        {
+            error = null;
+            var argumentsByName = new Dictionary<string, CommandArgumentDescriptor>(
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var argument in arguments ?? Array.Empty<CommandArgumentDescriptor>())
+            {
+                argumentsByName[argument?.name ?? ""] = argument ?? new CommandArgumentDescriptor();
+            }
+
+            foreach (var rule in rules ?? Array.Empty<CommandContractRule>())
+            {
+                var effectiveRule = rule ?? new CommandContractRule();
+                var ruleArguments = effectiveRule.arguments ?? Array.Empty<string>();
+                var presentCount = 0;
+                foreach (var argumentName in ruleArguments)
+                {
+                    var isPresent = effectiveRule.kind == "atLeastOneMutation"
+                        ? IsSuppliedNonEmpty(
+                            argumentName,
+                            suppliedArguments,
+                            boundValues)
+                        : IsMeaningfullyPresent(
+                            argumentName,
+                            argumentsByName,
+                            suppliedArguments,
+                            boundValues);
+                    if (isPresent)
+                    {
+                        presentCount++;
+                    }
+                }
+
+                if (effectiveRule.kind == "exactlyOneOf" && presentCount != 1)
+                {
+                    error = $"Exactly one of [{string.Join(", ", ruleArguments)}] must be provided";
+                    return false;
+                }
+
+                if (effectiveRule.kind == "atMostOneOf" && presentCount > 1)
+                {
+                    error = $"At most one of [{string.Join(", ", ruleArguments)}] may be provided";
+                    return false;
+                }
+
+                if ((effectiveRule.kind == "atLeastOneOf"
+                        || effectiveRule.kind == "atLeastOneMutation")
+                    && presentCount < 1)
+                {
+                    error = $"At least one of [{string.Join(", ", ruleArguments)}] must be provided";
+                    return false;
+                }
+
+                if (effectiveRule.kind == "requiresWhen"
+                    && IsWhenConditionSatisfied(
+                        effectiveRule,
+                        argumentsByName,
+                        suppliedArguments,
+                        boundValues))
+                {
+                    foreach (var requiredName in effectiveRule.requires ?? Array.Empty<string>())
+                    {
+                        if (!IsSuppliedNonEmpty(
+                                requiredName,
+                                suppliedArguments,
+                                boundValues))
+                        {
+                            error = $"Argument '{requiredName}' is required when '{effectiveRule.whenArgument}' matches {effectiveRule.whenEqualsJson}";
+                            return false;
+                        }
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        private static bool IsWhenConditionSatisfied(
+            CommandContractRule rule,
+            Dictionary<string, CommandArgumentDescriptor> argumentsByName,
+            HashSet<string> suppliedArguments,
+            Dictionary<string, object> boundValues)
+        {
+            if (string.IsNullOrEmpty(rule.whenArgument)
+                || !boundValues.TryGetValue(rule.whenArgument, out var value))
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrEmpty(rule.whenEqualsJson))
+            {
+                return string.Equals(
+                    CommandContractValueEncoder.Encode(value),
+                    rule.whenEqualsJson,
+                    StringComparison.Ordinal);
+            }
+
+            return IsMeaningfullyPresent(
+                rule.whenArgument,
+                argumentsByName,
+                suppliedArguments,
+                boundValues);
+        }
+
+        private static bool IsSuppliedNonEmpty(
+            string argumentName,
+            HashSet<string> suppliedArguments,
+            Dictionary<string, object> boundValues)
+        {
+            if (!suppliedArguments.Contains(argumentName)
+                || !boundValues.TryGetValue(argumentName, out var value)
+                || value == null)
+            {
+                return false;
+            }
+
+            if (value is string text)
+            {
+                return !string.IsNullOrEmpty(text);
+            }
+
+            return !(value is System.Collections.ICollection collection)
+                || collection.Count > 0;
+        }
+
+        private static bool IsMeaningfullyPresent(
+            string argumentName,
+            Dictionary<string, CommandArgumentDescriptor> argumentsByName,
+            HashSet<string> suppliedArguments,
+            Dictionary<string, object> boundValues)
+        {
+            if (!suppliedArguments.Contains(argumentName)
+                || !boundValues.TryGetValue(argumentName, out var value))
+            {
+                return false;
+            }
+
+            if (value == null
+                || (value is string text && string.IsNullOrEmpty(text))
+                || (value is System.Collections.ICollection collection && collection.Count == 0))
+            {
+                return false;
+            }
+
+            if (!argumentsByName.TryGetValue(argumentName, out var descriptor)
+                || !descriptor.hasDefault)
+            {
+                return true;
+            }
+
+            if (string.Equals(descriptor.defaultJson, "null", StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            return !string.Equals(
+                CommandContractValueEncoder.Encode(value),
+                descriptor.defaultJson ?? "",
+                StringComparison.Ordinal);
         }
 
         private static object GetDefaultValue(ParameterInfo parameter)
@@ -137,7 +485,11 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
             return defaultValue;
         }
 
-        private static bool TryConvertValue(string rawValue, Type parameterType, out object value, out string error)
+        internal static bool TryConvertContractValue(
+            string rawValue,
+            Type parameterType,
+            out object value,
+            out string error)
         {
             error = null;
             value = null;
@@ -198,6 +550,18 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
                 return false;
             }
 
+            if (targetType == typeof(uint))
+            {
+                if (uint.TryParse(rawValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var uintValue))
+                {
+                    value = uintValue;
+                    return true;
+                }
+
+                error = "expected an unsigned integer";
+                return false;
+            }
+
             if (targetType == typeof(long))
             {
                 if (long.TryParse(rawValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var longValue))
@@ -207,6 +571,18 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
                 }
 
                 error = "expected a 64-bit integer";
+                return false;
+            }
+
+            if (targetType == typeof(ulong))
+            {
+                if (ulong.TryParse(rawValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ulongValue))
+                {
+                    value = ulongValue;
+                    return true;
+                }
+
+                error = "expected an unsigned 64-bit integer";
                 return false;
             }
 
@@ -222,6 +598,18 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
                 return false;
             }
 
+            if (targetType == typeof(ushort))
+            {
+                if (ushort.TryParse(rawValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ushortValue))
+                {
+                    value = ushortValue;
+                    return true;
+                }
+
+                error = "expected an unsigned 16-bit integer";
+                return false;
+            }
+
             if (targetType == typeof(byte))
             {
                 if (byte.TryParse(rawValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var byteValue))
@@ -234,9 +622,27 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
                 return false;
             }
 
+            if (targetType == typeof(sbyte))
+            {
+                if (sbyte.TryParse(rawValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var sbyteValue))
+                {
+                    value = sbyteValue;
+                    return true;
+                }
+
+                error = "expected an 8-bit integer";
+                return false;
+            }
+
             if (targetType == typeof(float))
             {
-                if (float.TryParse(rawValue, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var floatValue))
+                if (float.TryParse(
+                        rawValue,
+                        NumberStyles.Float | NumberStyles.AllowThousands,
+                        CultureInfo.InvariantCulture,
+                        out var floatValue)
+                    && !float.IsNaN(floatValue)
+                    && !float.IsInfinity(floatValue))
                 {
                     value = floatValue;
                     return true;
@@ -248,7 +654,13 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
 
             if (targetType == typeof(double))
             {
-                if (double.TryParse(rawValue, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var doubleValue))
+                if (double.TryParse(
+                        rawValue,
+                        NumberStyles.Float | NumberStyles.AllowThousands,
+                        CultureInfo.InvariantCulture,
+                        out var doubleValue)
+                    && !double.IsNaN(doubleValue)
+                    && !double.IsInfinity(doubleValue))
                 {
                     value = doubleValue;
                     return true;
@@ -290,7 +702,13 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
                 {
                     try
                     {
-                        value = Enum.Parse(targetType, enumName, true);
+                        var parsed = Enum.Parse(targetType, enumName, false);
+                        if (!Enum.IsDefined(targetType, parsed))
+                        {
+                            throw new ArgumentException("undefined enum value");
+                        }
+
+                        value = parsed;
                         return true;
                     }
                     catch
@@ -300,13 +718,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
                     }
                 }
 
-                if (long.TryParse(rawValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var enumNumericValue))
-                {
-                    value = Enum.ToObject(targetType, enumNumericValue);
-                    return true;
-                }
-
-                error = "expected a JSON string or integer enum value";
+                error = $"expected one of: {string.Join(", ", Enum.GetNames(targetType))}";
                 return false;
             }
 
@@ -405,6 +817,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
             }
 
             index++;
+            var mayClose = true;
             while (true)
             {
                 SkipWhitespace(argsJson, ref index);
@@ -416,6 +829,12 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
 
                 if (argsJson[index] == '}')
                 {
+                    if (!mayClose)
+                    {
+                        error = "argsJson contains a trailing comma";
+                        return false;
+                    }
+
                     index++;
                     SkipWhitespace(argsJson, ref index);
                     if (index != argsJson.Length)
@@ -433,6 +852,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
                     return false;
                 }
 
+                mayClose = true;
                 SkipWhitespace(argsJson, ref index);
                 if (index >= argsJson.Length || argsJson[index] != ':')
                 {
@@ -449,7 +869,13 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
                     return false;
                 }
 
-                properties[name] = argsJson.Substring(valueStart, index - valueStart);
+                if (properties.ContainsKey(name))
+                {
+                    error = $"argsJson contains duplicate property '{name}'";
+                    return false;
+                }
+
+                properties.Add(name, argsJson.Substring(valueStart, index - valueStart));
 
                 SkipWhitespace(argsJson, ref index);
                 if (index >= argsJson.Length)
@@ -461,6 +887,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
                 if (argsJson[index] == ',')
                 {
                     index++;
+                    mayClose = false;
                     continue;
                 }
 
@@ -482,7 +909,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
             }
         }
 
-        private static void SkipWhitespace(string text, ref int index)
+        internal static void SkipWhitespace(string text, ref int index)
         {
             while (index < text.Length && char.IsWhiteSpace(text[index]))
             {
@@ -490,7 +917,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
             }
         }
 
-        private static bool TrySkipValue(string text, ref int index)
+        internal static bool TrySkipValue(string text, ref int index)
         {
             if (index >= text.Length)
             {
@@ -567,7 +994,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
             return false;
         }
 
-        private static bool TryParseStringLiteral(string text, out string value, ref int index)
+        internal static bool TryParseStringLiteral(string text, out string value, ref int index)
         {
             value = null;
             if (index >= text.Length || text[index] != '"')
@@ -588,6 +1015,11 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
 
                 if (c != '\\')
                 {
+                    if (c < 0x20)
+                    {
+                        return false;
+                    }
+
                     builder.Append(c);
                     continue;
                 }

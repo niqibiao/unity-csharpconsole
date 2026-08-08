@@ -19,43 +19,6 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 
 #if UNITY_EDITOR
         [Serializable]
-        private sealed class GetResult
-        {
-            public int instanceId;
-            public string path = "";
-            public Vector3 localPosition;
-            public Vector3 localEulerAngles;
-            public Vector3 localScale;
-            public Vector3 position;
-            public Vector3 eulerAngles;
-        }
-
-        [CommandAction("transform", "get", editorOnly: true, summary: "Get a GameObject's transform values")]
-        private static CommandResponse Get(string path = "", int instanceId = 0)
-        {
-            return CommandHelpers.RunCommand<GetResult>(
-                () =>
-                {
-                    var go = CommandHelpers.ResolveGameObject(path, instanceId, out var error);
-                    if (go == null) return (error, result: (GetResult)null);
-
-                    var t = go.transform;
-                    return (error: (string)null, result: new GetResult
-                    {
-                        instanceId = go.GetInstanceID(),
-                        path = CommandHelpers.GetHierarchyPath(t),
-                        localPosition = t.localPosition,
-                        localEulerAngles = t.localEulerAngles,
-                        localScale = t.localScale,
-                        position = t.position,
-                        eulerAngles = t.eulerAngles
-                    });
-                },
-                r => $"Transform for '{r.path}'"
-            );
-        }
-
-        [Serializable]
         private sealed class SetResult
         {
             public int instanceId;
@@ -65,7 +28,18 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public Vector3 localScale;
         }
 
-        [CommandAction("transform", "set", editorOnly: true, summary: "Set a GameObject's transform values")]
+        [CommandAction(
+            "transform",
+            "set",
+            editorOnly: true,
+            summary: "Set a GameObject's transform values",
+            resultType: typeof(SetResult))]
+        [CommandRule(CommandRuleKind.ExactlyOneOf, "path", "instanceId")]
+        [CommandRule(
+            CommandRuleKind.AtLeastOneMutation,
+            "position",
+            "rotation",
+            "scale")]
         private static CommandResponse Set(
             string path = "",
             int instanceId = 0,
@@ -81,18 +55,6 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     if (go == null) return (error, result: (SetResult)null);
 
                     var t = go.transform;
-
-                    if (!position.HasValue && !rotation.HasValue && !scale.HasValue)
-                    {
-                        return (error: (string)null, result: new SetResult
-                        {
-                            instanceId = go.GetInstanceID(),
-                            path = CommandHelpers.GetHierarchyPath(t),
-                            localPosition = t.localPosition,
-                            localEulerAngles = t.localEulerAngles,
-                            localScale = t.localScale
-                        });
-                    }
 
                     Undo.RecordObject(t, "Set Transform");
 
