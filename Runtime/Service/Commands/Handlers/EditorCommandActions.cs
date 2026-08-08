@@ -33,17 +33,17 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public string editorState = "";
             public bool isPlaying;
             public bool isPaused;
+            public bool isPlayingOrWillChangePlaymode;
+            [CommandField(AllowedValues = new[]
+            {
+                "editMode",
+                "enteringPlaymode",
+                "playMode",
+                "exitingPlaymode"
+            })]
+            public string playmodeState = "";
             public bool isCompiling;
             public bool isUpdating;
-        }
-
-        [Serializable]
-        private sealed class PlaymodeStatusResult
-        {
-            public bool isPlaying;
-            public bool isPaused;
-            public bool isPlayingOrWillChangePlaymode;
-            public bool isCompiling;
         }
 
         [Serializable]
@@ -70,10 +70,16 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         private static MethodInfo s_LogEntriesClearMethod;
         private static bool s_LogEntriesClearResolved;
 
-        [CommandAction("editor", "status", editorOnly: true, summary: "Get editor state and play mode info")]
+        [CommandAction(
+            "editor",
+            "status",
+            editorOnly: true,
+            summary: "Get editor state and play mode info",
+            resultType: typeof(EditorStatusResult))]
         private static CommandResponse EditorStatus()
         {
             var health = ConsoleHttpService.BuildHealthResponseSnapshot();
+            var playmodeState = GetCurrentPlaymodeLifecycleState();
             var result = new EditorStatusResult
             {
                 initialized = health.initialized,
@@ -83,25 +89,14 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 editorState = health.editorState ?? "",
                 isPlaying = EditorApplication.isPlaying,
                 isPaused = EditorApplication.isPaused,
+                isPlayingOrWillChangePlaymode =
+                    EditorApplication.isPlayingOrWillChangePlaymode,
+                playmodeState = ToWirePlaymodeState(playmodeState),
                 isCompiling = EditorApplication.isCompiling,
                 isUpdating = EditorApplication.isUpdating
             };
 
             return CommandResponseFactory.Ok("Editor status fetched", JsonUtility.ToJson(result));
-        }
-
-        [CommandAction("editor", "playmode.status", editorOnly: true, summary: "Get current play mode state")]
-        private static CommandResponse PlaymodeStatus()
-        {
-            var result = new PlaymodeStatusResult
-            {
-                isPlaying = EditorApplication.isPlaying,
-                isPaused = EditorApplication.isPaused,
-                isPlayingOrWillChangePlaymode = EditorApplication.isPlayingOrWillChangePlaymode,
-                isCompiling = EditorApplication.isCompiling
-            };
-
-            return CommandResponseFactory.Ok("Playmode status fetched", JsonUtility.ToJson(result));
         }
 
         [CommandAction("editor", "playmode.enter", editorOnly: true, runOnMainThread: false, summary: "Enter play mode")]
@@ -130,28 +125,6 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 : CommandResponseFactory.ValidationError(validationError);
         }
 
-        [CommandAction("editor", "menu.open", editorOnly: true, summary: "Open a menu item by path")]
-        private static CommandResponse OpenMenu(string menuPath)
-        {
-            if (string.IsNullOrEmpty(menuPath))
-            {
-                return CommandResponseFactory.ValidationError("menuPath is required for editor/menu.open");
-            }
-
-            return CommandResponseFactory.ValidationError("editor/menu.open is blocked in non-interactive mode due to modal-dialog risk");
-        }
-
-        [CommandAction("editor", "window.open", editorOnly: true, summary: "Open an editor window by type name")]
-        private static CommandResponse OpenWindow(string typeName, bool utility = false)
-        {
-            if (string.IsNullOrEmpty(typeName))
-            {
-                return CommandResponseFactory.ValidationError("typeName is required for editor/window.open");
-            }
-
-            return CommandResponseFactory.ValidationError("editor/window.open is blocked in non-interactive mode due to modal-dialog risk");
-        }
-
         [CommandAction("editor", "console.clear", editorOnly: true, summary: "Clear the editor console")]
         private static CommandResponse ClearConsole()
         {
@@ -161,7 +134,12 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 : CommandResponseFactory.ValidationError("Editor console clear is unavailable on this Unity version");
         }
 
-        [CommandAction("editor", "console.mark", editorOnly: true, summary: "Write a searchable marker into the editor log and return the log file path")]
+        [CommandAction(
+            "editor",
+            "console.mark",
+            editorOnly: true,
+            summary: "Write a searchable marker into the editor log and return the log file path",
+            resultType: typeof(ConsoleMarkResult))]
         private static CommandResponse MarkConsole(string label = "")
         {
             var markerId = Guid.NewGuid().ToString("N");
@@ -296,6 +274,18 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             return EditorApplication.isPlayingOrWillChangePlaymode
                 ? PlaymodeLifecycleState.EnteringPlaymode
                 : PlaymodeLifecycleState.EditMode;
+        }
+
+        private static string ToWirePlaymodeState(PlaymodeLifecycleState state)
+        {
+            return state switch
+            {
+                PlaymodeLifecycleState.EditMode => "editMode",
+                PlaymodeLifecycleState.EnteringPlaymode => "enteringPlaymode",
+                PlaymodeLifecycleState.PlayMode => "playMode",
+                PlaymodeLifecycleState.ExitingPlaymode => "exitingPlaymode",
+                _ => "editMode"
+            };
         }
 
         private static void HandlePlayModeStateChanged(PlayModeStateChange stateChange)

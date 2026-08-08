@@ -36,8 +36,15 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public string shaderName = "";
         }
 
-        [CommandAction("material", "create", editorOnly: true, summary: "Create a new material asset")]
-        private static CommandResponse Create(string savePath, string shaderName = "")
+        [CommandAction(
+            "material",
+            "create",
+            editorOnly: true,
+            summary: "Create a new material asset",
+            resultType: typeof(CreateResult))]
+        private static CommandResponse Create(
+            [CommandArgument(NonEmpty = true)] string savePath,
+            string shaderName = "")
         {
             if (string.IsNullOrEmpty(savePath))
                 return CommandResponseFactory.ValidationError("savePath is required for material/create");
@@ -85,7 +92,13 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public MaterialProperty[] properties = Array.Empty<MaterialProperty>();
         }
 
-        [CommandAction("material", "get", editorOnly: true, summary: "Get material properties")]
+        [CommandAction(
+            "material",
+            "get",
+            editorOnly: true,
+            summary: "Get material properties",
+            resultType: typeof(GetResult))]
+        [CommandRule(CommandRuleKind.ExactlyOneOf, "assetPath", "gameObjectPath")]
         private static CommandResponse Get(string assetPath = "", string gameObjectPath = "")
         {
             return CommandHelpers.RunCommand<GetResult>(
@@ -180,8 +193,18 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public int index;
         }
 
-        [CommandAction("material", "assign", editorOnly: true, summary: "Assign a material to a Renderer component")]
-        private static CommandResponse Assign(string materialPath, string gameObjectPath = "", int gameObjectInstanceId = 0, int index = 0)
+        [CommandAction(
+            "material",
+            "assign",
+            editorOnly: true,
+            summary: "Assign a material to a Renderer component",
+            resultType: typeof(AssignResult))]
+        [CommandRule(CommandRuleKind.ExactlyOneOf, "gameObjectPath", "gameObjectInstanceId")]
+        private static CommandResponse Assign(
+            [CommandArgument(NonEmpty = true)] string materialPath,
+            string gameObjectPath = "",
+            int gameObjectInstanceId = 0,
+            [CommandArgument(Minimum = 0)] int index = 0)
         {
             if (string.IsNullOrEmpty(materialPath))
                 return CommandResponseFactory.ValidationError("materialPath is required for material/assign");

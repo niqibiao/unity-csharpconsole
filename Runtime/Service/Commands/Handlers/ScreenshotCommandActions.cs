@@ -26,11 +26,19 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public int height;
         }
 
-        [CommandAction("screenshot", "scene_view", editorOnly: true, summary: "Capture the current Scene View")]
-        private static CommandResponse CaptureSceneView(string savePath, int width = 0, int height = 0)
+        [CommandAction(
+            "screenshot",
+            "scene_view",
+            editorOnly: true,
+            summary: "Capture the current Scene View",
+            resultType: typeof(ScreenshotResult))]
+        private static CommandResponse CaptureSceneView(
+            [CommandArgument(NonEmpty = true)] string savePath,
+            [CommandArgument(Minimum = 0)] int width = 0,
+            [CommandArgument(Minimum = 0)] int height = 0)
         {
             if (string.IsNullOrEmpty(savePath))
-                return CommandResponseFactory.ValidationError("savePath is required for screenshot/scene-view");
+                return CommandResponseFactory.ValidationError("savePath is required for screenshot/scene_view");
 
             return CommandHelpers.RunCommand<ScreenshotResult>(
                 () =>
@@ -65,11 +73,20 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             );
         }
 
-        [CommandAction("screenshot", "game_view", editorOnly: true, summary: "Capture the Game View")]
-        private static CommandResponse CaptureGameView(string savePath, int width = 0, int height = 0, int superSize = 1)
+        [CommandAction(
+            "screenshot",
+            "game_view",
+            editorOnly: true,
+            summary: "Capture the Game View",
+            resultType: typeof(ScreenshotResult))]
+        private static CommandResponse CaptureGameView(
+            [CommandArgument(NonEmpty = true)] string savePath,
+            [CommandArgument(Minimum = 0)] int width = 0,
+            [CommandArgument(Minimum = 0)] int height = 0,
+            [CommandArgument(Minimum = 1)] int superSize = 1)
         {
             if (string.IsNullOrEmpty(savePath))
-                return CommandResponseFactory.ValidationError("savePath is required for screenshot/game-view");
+                return CommandResponseFactory.ValidationError("savePath is required for screenshot/game_view");
 
             var captureSuperSize = superSize > 0 ? superSize : 1;
 

@@ -14,6 +14,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
         private readonly Dictionary<string, RouteEntry> _routes = new Dictionary<string, RouteEntry>(StringComparer.Ordinal);
         private readonly List<CommandDescriptor> _descriptors = new List<CommandDescriptor>();
         private CommandDescriptor[] _sortedSnapshot;
+        private CommandRegistrySnapshot _registrySnapshot;
 
         public void Register(CommandDescriptor descriptor, Func<CommandInvocation, CommandResponse> handler)
         {
@@ -31,6 +32,8 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
 
             RegisterRoute(descriptor.commandNamespace, descriptor.action, route);
             _descriptors.Add(descriptor);
+            _sortedSnapshot = null;
+            _registrySnapshot = null;
         }
 
         public bool TryGet(string commandNamespace, string action, out RouteEntry route)
@@ -53,6 +56,16 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
             });
             _sortedSnapshot = snapshot;
             return _sortedSnapshot;
+        }
+
+        public CommandRegistrySnapshot GetSnapshot()
+        {
+            if (_registrySnapshot == null)
+            {
+                _registrySnapshot = CommandRegistrySnapshotBuilder.Build(ListDescriptors());
+            }
+
+            return _registrySnapshot;
         }
 
         private void RegisterRoute(string commandNamespace, string action, RouteEntry route)

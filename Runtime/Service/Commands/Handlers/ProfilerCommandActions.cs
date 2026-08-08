@@ -33,7 +33,12 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public string logFile = "";
         }
 
-        [CommandAction("profiler", "start", editorOnly: true, summary: "Start Profiler recording")]
+        [CommandAction(
+            "profiler",
+            "start",
+            editorOnly: true,
+            summary: "Start Profiler recording",
+            resultType: typeof(StartResult))]
         private static CommandResponse Start(bool deep = false, string logFile = "")
         {
             if (s_DeepProfilingProp != null)
@@ -68,7 +73,12 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public bool stopped;
         }
 
-        [CommandAction("profiler", "stop", editorOnly: true, summary: "Stop Profiler recording")]
+        [CommandAction(
+            "profiler",
+            "stop",
+            editorOnly: true,
+            summary: "Stop Profiler recording",
+            resultType: typeof(StopResult))]
         private static CommandResponse Stop()
         {
             Profiler.enabled = false;
@@ -91,7 +101,12 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public int frameCount;
         }
 
-        [CommandAction("profiler", "status", editorOnly: true, summary: "Get current Profiler state")]
+        [CommandAction(
+            "profiler",
+            "status",
+            editorOnly: true,
+            summary: "Get current Profiler state",
+            resultType: typeof(StatusResult))]
         private static CommandResponse Status()
         {
             var isDeep = s_DeepProfilingProp != null && (bool)s_DeepProfilingProp.GetValue(null);
@@ -116,8 +131,14 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public bool saved;
         }
 
-        [CommandAction("profiler", "save", editorOnly: true, summary: "Save recorded profiler data to a .raw file")]
-        private static CommandResponse Save(string savePath)
+        [CommandAction(
+            "profiler",
+            "save",
+            editorOnly: true,
+            summary: "Save recorded profiler data to a .raw file",
+            resultType: typeof(SaveResult))]
+        private static CommandResponse Save(
+            [CommandArgument(NonEmpty = true)] string savePath)
         {
             if (string.IsNullOrEmpty(savePath))
             {

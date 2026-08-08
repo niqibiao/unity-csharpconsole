@@ -39,8 +39,15 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public HierarchyNode[] dontDestroyOnLoadRoots = Array.Empty<HierarchyNode>();
         }
 
-        [CommandAction("scene", "hierarchy", editorOnly: true, summary: "Get the full scene hierarchy tree")]
-        private static CommandResponse Hierarchy(int depth = -1, bool includeComponents = false)
+        [CommandAction(
+            "scene",
+            "hierarchy",
+            editorOnly: true,
+            summary: "Get the full scene hierarchy tree",
+            resultType: typeof(HierarchyResult))]
+        private static CommandResponse Hierarchy(
+            [CommandArgument(Minimum = -1)] int depth = -1,
+            bool includeComponents = false)
         {
             var scene = SceneManager.GetActiveScene();
             var rootObjects = scene.GetRootGameObjects();

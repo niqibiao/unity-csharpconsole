@@ -31,8 +31,20 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public int componentInstanceId;
         }
 
-        [CommandAction("component", "add", editorOnly: true, summary: "Add a component to a GameObject")]
-        private static CommandResponse Add(string typeName, string gameObjectPath = "", int gameObjectInstanceId = 0)
+        [CommandAction(
+            "component",
+            "add",
+            editorOnly: true,
+            summary: "Add a component to a GameObject",
+            resultType: typeof(AddResult))]
+        [CommandRule(
+            CommandRuleKind.ExactlyOneOf,
+            "gameObjectPath",
+            "gameObjectInstanceId")]
+        private static CommandResponse Add(
+            [CommandArgument(NonEmpty = true)] string typeName,
+            string gameObjectPath = "",
+            int gameObjectInstanceId = 0)
         {
             if (string.IsNullOrEmpty(typeName))
                 return CommandResponseFactory.ValidationError("typeName is required for component/add");
@@ -71,8 +83,21 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public bool removed;
         }
 
-        [CommandAction("component", "remove", editorOnly: true, summary: "Remove a component from a GameObject")]
-        private static CommandResponse Remove(string typeName, string gameObjectPath = "", int gameObjectInstanceId = 0, int index = 0)
+        [CommandAction(
+            "component",
+            "remove",
+            editorOnly: true,
+            summary: "Remove a component from a GameObject",
+            resultType: typeof(RemoveResult))]
+        [CommandRule(
+            CommandRuleKind.ExactlyOneOf,
+            "gameObjectPath",
+            "gameObjectInstanceId")]
+        private static CommandResponse Remove(
+            [CommandArgument(NonEmpty = true)] string typeName,
+            string gameObjectPath = "",
+            int gameObjectInstanceId = 0,
+            [CommandArgument(Minimum = 0)] int index = 0)
         {
             if (string.IsNullOrEmpty(typeName))
                 return CommandResponseFactory.ValidationError("typeName is required for component/remove");
@@ -117,8 +142,21 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public CommandHelpers.PropertyInfo[] properties = Array.Empty<CommandHelpers.PropertyInfo>();
         }
 
-        [CommandAction("component", "get", editorOnly: true, summary: "Get serialized field data of a component")]
-        private static CommandResponse Get(string typeName, string gameObjectPath = "", int gameObjectInstanceId = 0, int index = 0)
+        [CommandAction(
+            "component",
+            "get",
+            editorOnly: true,
+            summary: "Get serialized field data of a component",
+            resultType: typeof(GetResult))]
+        [CommandRule(
+            CommandRuleKind.ExactlyOneOf,
+            "gameObjectPath",
+            "gameObjectInstanceId")]
+        private static CommandResponse Get(
+            [CommandArgument(NonEmpty = true)] string typeName,
+            string gameObjectPath = "",
+            int gameObjectInstanceId = 0,
+            [CommandArgument(Minimum = 0)] int index = 0)
         {
             if (string.IsNullOrEmpty(typeName))
                 return CommandResponseFactory.ValidationError("typeName is required for component/get");
@@ -183,8 +221,22 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public string[] modifiedFields = Array.Empty<string>();
         }
 
-        [CommandAction("component", "modify", editorOnly: true, summary: "Modify serialized fields of a component")]
-        private static CommandResponse Modify(CommandHelpers.FieldPair[] fields, string typeName, string gameObjectPath = "", int gameObjectInstanceId = 0, int index = 0)
+        [CommandAction(
+            "component",
+            "modify",
+            editorOnly: true,
+            summary: "Modify serialized fields of a component",
+            resultType: typeof(ModifyResult))]
+        [CommandRule(
+            CommandRuleKind.ExactlyOneOf,
+            "gameObjectPath",
+            "gameObjectInstanceId")]
+        private static CommandResponse Modify(
+            [CommandArgument(NonEmpty = true)] CommandHelpers.FieldPair[] fields,
+            [CommandArgument(NonEmpty = true)] string typeName,
+            string gameObjectPath = "",
+            int gameObjectInstanceId = 0,
+            [CommandArgument(Minimum = 0)] int index = 0)
         {
             if (string.IsNullOrEmpty(typeName))
                 return CommandResponseFactory.ValidationError("typeName is required for component/modify");

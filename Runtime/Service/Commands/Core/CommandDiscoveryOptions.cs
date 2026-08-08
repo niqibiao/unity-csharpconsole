@@ -18,7 +18,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
         {
             lock (s_Lock)
             {
-                s_Current = options ?? new CommandDiscoveryOptions();
+                s_Current = Clone(options);
                 s_AssemblyFilter = assemblyFilter;
                 unchecked
                 {
@@ -31,7 +31,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
         {
             lock (s_Lock)
             {
-                return s_Current ?? new CommandDiscoveryOptions();
+                return Clone(s_Current);
             }
         }
 
@@ -49,6 +49,20 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
             {
                 return s_Version;
             }
+        }
+
+        private static CommandDiscoveryOptions Clone(CommandDiscoveryOptions options)
+        {
+            options ??= new CommandDiscoveryOptions();
+            return new CommandDiscoveryOptions
+            {
+                assemblyNamePrefixes =
+                    (string[])(options.assemblyNamePrefixes
+                        ?? Array.Empty<string>()).Clone(),
+                scanReferencingAssembliesOnly =
+                    options.scanReferencingAssembliesOnly,
+                includeEditorAssemblies = options.includeEditorAssemblies
+            };
         }
     }
 }

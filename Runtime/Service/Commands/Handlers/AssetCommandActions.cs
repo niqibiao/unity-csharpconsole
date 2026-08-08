@@ -28,8 +28,15 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public string newPath = "";
         }
 
-        [CommandAction("asset", "move", editorOnly: true, summary: "Move or rename an asset")]
-        private static CommandResponse Move(string sourcePath, string destinationPath)
+        [CommandAction(
+            "asset",
+            "move",
+            editorOnly: true,
+            summary: "Move or rename an asset",
+            resultType: typeof(MoveResult))]
+        private static CommandResponse Move(
+            [CommandArgument(NonEmpty = true)] string sourcePath,
+            [CommandArgument(NonEmpty = true)] string destinationPath)
         {
             if (string.IsNullOrEmpty(sourcePath))
                 return CommandResponseFactory.ValidationError("sourcePath is required for asset/move");
@@ -70,8 +77,15 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public string destinationPath = "";
         }
 
-        [CommandAction("asset", "copy", editorOnly: true, summary: "Copy an asset to a new path")]
-        private static CommandResponse Copy(string sourcePath, string destinationPath)
+        [CommandAction(
+            "asset",
+            "copy",
+            editorOnly: true,
+            summary: "Copy an asset to a new path",
+            resultType: typeof(CopyResult))]
+        private static CommandResponse Copy(
+            [CommandArgument(NonEmpty = true)] string sourcePath,
+            [CommandArgument(NonEmpty = true)] string destinationPath)
         {
             if (string.IsNullOrEmpty(sourcePath))
                 return CommandResponseFactory.ValidationError("sourcePath is required for asset/copy");
@@ -107,7 +121,13 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public string[] failedPaths = Array.Empty<string>();
         }
 
-        [CommandAction("asset", "delete", editorOnly: true, summary: "Delete one or more assets")]
+        [CommandAction(
+            "asset",
+            "delete",
+            editorOnly: true,
+            summary: "Delete one or more assets",
+            resultType: typeof(DeleteResult))]
+        [CommandRule(CommandRuleKind.AtLeastOneOf, "assetPath", "assetPaths")]
         private static CommandResponse Delete(string assetPath = "", string[] assetPaths = null)
         {
             var paths = BuildPathList(assetPath, assetPaths);
@@ -160,8 +180,14 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public string guid = "";
         }
 
-        [CommandAction("asset", "create_folder", editorOnly: true, summary: "Create a folder in the Asset Database")]
-        private static CommandResponse CreateFolder(string folderPath)
+        [CommandAction(
+            "asset",
+            "create_folder",
+            editorOnly: true,
+            summary: "Create a folder in the Asset Database",
+            resultType: typeof(CreateFolderResult))]
+        private static CommandResponse CreateFolder(
+            [CommandArgument(NonEmpty = true)] string folderPath)
         {
             if (string.IsNullOrEmpty(folderPath))
                 return CommandResponseFactory.ValidationError("folderPath is required for asset/create_folder");

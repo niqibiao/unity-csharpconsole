@@ -29,9 +29,15 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public string name = "";
         }
 
-        [CommandAction("prefab", "create", editorOnly: true, summary: "Create a prefab asset from a scene GameObject")]
+        [CommandAction(
+            "prefab",
+            "create",
+            editorOnly: true,
+            summary: "Create a prefab asset from a scene GameObject",
+            resultType: typeof(CreateResult))]
+        [CommandRule(CommandRuleKind.ExactlyOneOf, "gameObjectPath", "gameObjectInstanceId")]
         private static CommandResponse Create(
-            string savePath,
+            [CommandArgument(NonEmpty = true)] string savePath,
             string gameObjectPath = "",
             int gameObjectInstanceId = 0)
         {
@@ -74,8 +80,16 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public string path = "";
         }
 
-        [CommandAction("prefab", "instantiate", editorOnly: true, summary: "Instantiate a prefab into the active scene")]
-        private static CommandResponse Instantiate(string assetPath, string parentPath = "", Vector3? position = null)
+        [CommandAction(
+            "prefab",
+            "instantiate",
+            editorOnly: true,
+            summary: "Instantiate a prefab into the active scene",
+            resultType: typeof(InstantiateResult))]
+        private static CommandResponse Instantiate(
+            [CommandArgument(NonEmpty = true)] string assetPath,
+            string parentPath = "",
+            Vector3? position = null)
         {
             if (string.IsNullOrEmpty(assetPath))
                 return CommandResponseFactory.ValidationError("assetPath is required for prefab/instantiate");
@@ -128,7 +142,13 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public bool unpacked;
         }
 
-        [CommandAction("prefab", "unpack", editorOnly: true, summary: "Unpack a prefab instance")]
+        [CommandAction(
+            "prefab",
+            "unpack",
+            editorOnly: true,
+            summary: "Unpack a prefab instance",
+            resultType: typeof(UnpackResult))]
+        [CommandRule(CommandRuleKind.ExactlyOneOf, "gameObjectPath", "gameObjectInstanceId")]
         private static CommandResponse Unpack(string gameObjectPath = "", int gameObjectInstanceId = 0, bool full = false)
         {
             return CommandHelpers.RunCommand<UnpackResult>(
@@ -179,8 +199,16 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public AssetHierarchyNode root;
         }
 
-        [CommandAction("prefab", "asset_hierarchy", editorOnly: true, summary: "Get the hierarchy tree of a prefab asset")]
-        private static CommandResponse AssetHierarchy(string assetPath, int depth = -1, bool includeComponents = false)
+        [CommandAction(
+            "prefab",
+            "asset_hierarchy",
+            editorOnly: true,
+            summary: "Get the hierarchy tree of a prefab asset",
+            resultType: typeof(AssetHierarchyResult))]
+        private static CommandResponse AssetHierarchy(
+            [CommandArgument(NonEmpty = true)] string assetPath,
+            [CommandArgument(Minimum = -1)] int depth = -1,
+            bool includeComponents = false)
         {
             if (string.IsNullOrEmpty(assetPath))
                 return CommandResponseFactory.ValidationError("assetPath is required for prefab/asset_hierarchy");
@@ -247,7 +275,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         private sealed class AssetTransformInfo
         {
             public Vector3 localPosition;
-            public Vector3 localRotation;
+            public Vector3 localEulerAngles;
             public Vector3 localScale;
         }
 
@@ -269,12 +297,20 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public string tag = "";
             public int layer;
             public bool activeSelf;
+            public bool isStatic;
             public AssetTransformInfo transform = new AssetTransformInfo();
             public AssetComponentBrief[] components = Array.Empty<AssetComponentBrief>();
         }
 
-        [CommandAction("prefab", "asset_get", editorOnly: true, summary: "Get detailed info about a GameObject in a prefab asset")]
-        private static CommandResponse AssetGet(string assetPath, string gameObjectPath = "")
+        [CommandAction(
+            "prefab",
+            "asset_get",
+            editorOnly: true,
+            summary: "Get detailed info about a GameObject in a prefab asset",
+            resultType: typeof(AssetGetResult))]
+        private static CommandResponse AssetGet(
+            [CommandArgument(NonEmpty = true)] string assetPath,
+            string gameObjectPath = "")
         {
             if (string.IsNullOrEmpty(assetPath))
                 return CommandResponseFactory.ValidationError("assetPath is required for prefab/asset_get");
@@ -308,10 +344,11 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                         tag = go.tag,
                         layer = go.layer,
                         activeSelf = go.activeSelf,
+                        isStatic = go.isStatic,
                         transform = new AssetTransformInfo
                         {
                             localPosition = t.localPosition,
-                            localRotation = t.localEulerAngles,
+                            localEulerAngles = t.localEulerAngles,
                             localScale = t.localScale,
                         },
                         components = compInfos.ToArray()
@@ -333,8 +370,17 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public CommandHelpers.PropertyInfo[] properties = Array.Empty<CommandHelpers.PropertyInfo>();
         }
 
-        [CommandAction("prefab", "asset_get_component", editorOnly: true, summary: "Get serialized properties of a component in a prefab asset")]
-        private static CommandResponse AssetGetComponent(string assetPath, string typeName, string gameObjectPath = "", int index = 0)
+        [CommandAction(
+            "prefab",
+            "asset_get_component",
+            editorOnly: true,
+            summary: "Get serialized properties of a component in a prefab asset",
+            resultType: typeof(AssetGetComponentResult))]
+        private static CommandResponse AssetGetComponent(
+            [CommandArgument(NonEmpty = true)] string assetPath,
+            [CommandArgument(NonEmpty = true)] string typeName,
+            string gameObjectPath = "",
+            [CommandArgument(Minimum = 0)] int index = 0)
         {
             if (string.IsNullOrEmpty(assetPath))
                 return CommandResponseFactory.ValidationError("assetPath is required for prefab/asset_get_component");
@@ -400,8 +446,18 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public string[] modifiedFields = Array.Empty<string>();
         }
 
-        [CommandAction("prefab", "asset_modify_component", editorOnly: true, summary: "Modify serialized fields of a component in a prefab asset")]
-        private static CommandResponse AssetModifyComponent(CommandHelpers.FieldPair[] fields, string assetPath, string typeName, string gameObjectPath = "", int index = 0)
+        [CommandAction(
+            "prefab",
+            "asset_modify_component",
+            editorOnly: true,
+            summary: "Modify serialized fields of a component in a prefab asset",
+            resultType: typeof(AssetModifyComponentResult))]
+        private static CommandResponse AssetModifyComponent(
+            [CommandArgument(NonEmpty = true)] CommandHelpers.FieldPair[] fields,
+            [CommandArgument(NonEmpty = true)] string assetPath,
+            [CommandArgument(NonEmpty = true)] string typeName,
+            string gameObjectPath = "",
+            [CommandArgument(Minimum = 0)] int index = 0)
         {
             if (string.IsNullOrEmpty(assetPath))
                 return CommandResponseFactory.ValidationError("assetPath is required for prefab/asset_modify_component");
@@ -466,8 +522,16 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public int componentInstanceId;
         }
 
-        [CommandAction("prefab", "asset_add_component", editorOnly: true, summary: "Add a component to a GameObject in a prefab asset")]
-        private static CommandResponse AssetAddComponent(string assetPath, string typeName, string gameObjectPath = "")
+        [CommandAction(
+            "prefab",
+            "asset_add_component",
+            editorOnly: true,
+            summary: "Add a component to a GameObject in a prefab asset",
+            resultType: typeof(AssetAddComponentResult))]
+        private static CommandResponse AssetAddComponent(
+            [CommandArgument(NonEmpty = true)] string assetPath,
+            [CommandArgument(NonEmpty = true)] string typeName,
+            string gameObjectPath = "")
         {
             if (string.IsNullOrEmpty(assetPath))
                 return CommandResponseFactory.ValidationError("assetPath is required for prefab/asset_add_component");
@@ -512,8 +576,17 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public bool removed;
         }
 
-        [CommandAction("prefab", "asset_remove_component", editorOnly: true, summary: "Remove a component from a GameObject in a prefab asset")]
-        private static CommandResponse AssetRemoveComponent(string assetPath, string typeName, string gameObjectPath = "", int index = 0)
+        [CommandAction(
+            "prefab",
+            "asset_remove_component",
+            editorOnly: true,
+            summary: "Remove a component from a GameObject in a prefab asset",
+            resultType: typeof(AssetRemoveComponentResult))]
+        private static CommandResponse AssetRemoveComponent(
+            [CommandArgument(NonEmpty = true)] string assetPath,
+            [CommandArgument(NonEmpty = true)] string typeName,
+            string gameObjectPath = "",
+            [CommandArgument(Minimum = 0)] int index = 0)
         {
             if (string.IsNullOrEmpty(assetPath))
                 return CommandResponseFactory.ValidationError("assetPath is required for prefab/asset_remove_component");
@@ -560,15 +633,27 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public string name = "";
         }
 
-        [CommandAction("prefab", "asset_modify_gameobject", editorOnly: true, summary: "Modify a GameObject's properties in a prefab asset")]
+        [CommandAction(
+            "prefab",
+            "asset_modify_gameobject",
+            editorOnly: true,
+            summary: "Modify a GameObject's properties in a prefab asset",
+            resultType: typeof(AssetModifyGameObjectResult))]
+        [CommandRule(
+            CommandRuleKind.AtLeastOneMutation,
+            "name",
+            "tag",
+            "layer",
+            "active",
+            "isStatic")]
         private static CommandResponse AssetModifyGameObject(
-            string assetPath,
+            [CommandArgument(NonEmpty = true)] string assetPath,
             string gameObjectPath = "",
             string name = "",
             string tag = "",
-            int layer = -1,
-            int active = -1,
-            int isStatic = -1)
+            [CommandArgument(Minimum = 0, Maximum = 31)] int? layer = null,
+            bool? active = null,
+            bool? isStatic = null)
         {
             if (string.IsNullOrEmpty(assetPath))
                 return CommandResponseFactory.ValidationError("assetPath is required for prefab/asset_modify_gameobject");
@@ -581,9 +666,9 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 
                     if (!string.IsNullOrEmpty(name)) go.name = name;
                     if (!string.IsNullOrEmpty(tag)) go.tag = tag;
-                    if (layer >= 0) go.layer = layer;
-                    if (active >= 0) go.SetActive(active != 0);
-                    if (isStatic >= 0) go.isStatic = isStatic != 0;
+                    if (layer.HasValue) go.layer = layer.Value;
+                    if (active.HasValue) go.SetActive(active.Value);
+                    if (isStatic.HasValue) go.isStatic = isStatic.Value;
 
                     PrefabUtility.SavePrefabAsset(root);
 
@@ -608,8 +693,16 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public string name = "";
         }
 
-        [CommandAction("prefab", "asset_add_gameobject", editorOnly: true, summary: "Add a child GameObject to a prefab asset")]
-        private static CommandResponse AssetAddGameObject(string assetPath, string parentPath = "", string name = "")
+        [CommandAction(
+            "prefab",
+            "asset_add_gameobject",
+            editorOnly: true,
+            summary: "Add a child GameObject to a prefab asset",
+            resultType: typeof(AssetAddGameObjectResult))]
+        private static CommandResponse AssetAddGameObject(
+            [CommandArgument(NonEmpty = true)] string assetPath,
+            string parentPath = "",
+            string name = "")
         {
             if (string.IsNullOrEmpty(assetPath))
                 return CommandResponseFactory.ValidationError("assetPath is required for prefab/asset_add_gameobject");
@@ -646,8 +739,15 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public bool removed;
         }
 
-        [CommandAction("prefab", "asset_remove_gameobject", editorOnly: true, summary: "Remove a child GameObject from a prefab asset")]
-        private static CommandResponse AssetRemoveGameObject(string assetPath, string gameObjectPath)
+        [CommandAction(
+            "prefab",
+            "asset_remove_gameobject",
+            editorOnly: true,
+            summary: "Remove a child GameObject from a prefab asset",
+            resultType: typeof(AssetRemoveGameObjectResult))]
+        private static CommandResponse AssetRemoveGameObject(
+            [CommandArgument(NonEmpty = true)] string assetPath,
+            [CommandArgument(NonEmpty = true)] string gameObjectPath)
         {
             if (string.IsNullOrEmpty(assetPath))
                 return CommandResponseFactory.ValidationError("assetPath is required for prefab/asset_remove_gameobject");

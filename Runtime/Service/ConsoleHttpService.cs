@@ -584,7 +584,7 @@ namespace Zh1Zh1.CSharpConsole.Service
 
         // Cached on the main thread so /health (background HTTP thread) can read
         // them safely. UnityEditor.EditorUtility.scriptCompilationFailed throws
-        // UnityException when accessed off-main-thread on Unity 2022.3.
+        // UnityException when accessed off-main-thread on Unity 2022.
         private static volatile bool s_CachedIsCompiling;
         private static volatile bool s_CachedCompileFailed;
 
