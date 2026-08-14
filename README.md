@@ -206,7 +206,7 @@ Tab completion works for both command names and argument names.
 
 ## 📋 Built-in Actions
 
-57 built-in commands across 13 namespaces, covering editor control, scene manipulation, asset management, and more.
+56 built-in commands across 13 namespaces, covering editor control, scene manipulation, asset management, and more.
 
 | Namespace | Action | Description |
 |-----------|--------|-------------|
@@ -226,6 +226,15 @@ Tab completion works for both command names and argument names.
 | **prefab** | `create` | Create a prefab asset from a scene GameObject |
 | | `instantiate` | Instantiate a prefab into the active scene |
 | | `unpack` | Unpack a prefab instance |
+| | `asset_hierarchy` | Get the hierarchy tree of a prefab asset |
+| | `asset_get` | Get detailed info about a GameObject in a prefab asset |
+| | `asset_get_component` | Get serialized properties of a component in a prefab asset |
+| | `asset_modify_component` | Modify serialized fields of a component in a prefab asset |
+| | `asset_add_component` | Add a component to a GameObject in a prefab asset |
+| | `asset_remove_component` | Remove a component from a GameObject in a prefab asset |
+| | `asset_modify_gameobject` | Modify a GameObject's properties in a prefab asset |
+| | `asset_add_gameobject` | Add a child GameObject to a prefab asset |
+| | `asset_remove_gameobject` | Remove a child GameObject from a prefab asset |
 | **material** | `create` | Create a new material asset with a specified shader |
 | | `get` | Get material properties from an asset or a Renderer |
 | | `assign` | Assign a material to a Renderer component |
@@ -256,8 +265,11 @@ Tab completion works for both command names and argument names.
 | | `inspect` | Inspect a session's state |
 | | `reset` | Reset a session's compiler and executor |
 | **command** | `list` | List all registered commands (built-in + custom) |
+| | `registry.snapshot` | Get the command registry snapshot |
 
-> Most actions are editor-only. `session.*` and `command.list` are available on Runtime builds as well.
+> Most actions are editor-only. `session.*` and `command.*` are available on Runtime builds as well.
+>
+> `prefab/asset_*` edit the asset on disk without opening a scene. They address children by the identity selector returned from `asset_hierarchy` (`gid:<guid>:<localFileId>`), not by name path.
 
 ## 🔌 Extending Commands
 

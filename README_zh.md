@@ -206,7 +206,7 @@ Tab 补全支持命令名和参数名。
 
 ## 📋 内置 Action
 
-13 个命名空间，57 个内置命令，覆盖编辑器控制、场景操作、资产管理等常见场景。
+13 个命名空间，56 个内置命令，覆盖编辑器控制、场景操作、资产管理等常见场景。
 
 | 命名空间 | Action | 说明 |
 |----------|--------|------|
@@ -226,6 +226,15 @@ Tab 补全支持命令名和参数名。
 | **prefab** | `create` | 从场景 GameObject 创建 Prefab 资产 |
 | | `instantiate` | 将 Prefab 实例化到当前场景 |
 | | `unpack` | 解包 Prefab 实例 |
+| | `asset_hierarchy` | 获取 Prefab 资产的层级树 |
+| | `asset_get` | 获取 Prefab 资产中某个 GameObject 的详情 |
+| | `asset_get_component` | 获取 Prefab 资产中某个组件的序列化属性 |
+| | `asset_modify_component` | 修改 Prefab 资产中某个组件的序列化字段 |
+| | `asset_add_component` | 为 Prefab 资产中的 GameObject 添加组件 |
+| | `asset_remove_component` | 从 Prefab 资产中的 GameObject 移除组件 |
+| | `asset_modify_gameobject` | 修改 Prefab 资产中某个 GameObject 的属性 |
+| | `asset_add_gameobject` | 向 Prefab 资产添加子 GameObject |
+| | `asset_remove_gameobject` | 从 Prefab 资产移除子 GameObject |
 | **material** | `create` | 使用指定 Shader 创建新材质资产 |
 | | `get` | 从资产或 Renderer 获取材质属性 |
 | | `assign` | 将材质分配给 Renderer 组件 |
@@ -256,8 +265,11 @@ Tab 补全支持命令名和参数名。
 | | `inspect` | 检查会话状态 |
 | | `reset` | 重置会话的编译器和执行器 |
 | **command** | `list` | 列出所有已注册命令（内置 + 自定义） |
+| | `registry.snapshot` | 获取命令注册表快照 |
 
-> 大部分 Action 仅限 Editor。`session.*` 和 `command.list` 在 Runtime 构建中同样可用。
+> 大部分 Action 仅限 Editor。`session.*` 和 `command.*` 在 Runtime 构建中同样可用。
+>
+> `prefab/asset_*` 直接编辑磁盘上的资产，无需打开场景。其子物体通过 `asset_hierarchy` 返回的身份选择器（`gid:<guid>:<localFileId>`）定位，而非名称路径。
 
 ## 🔌 扩展命令
 
