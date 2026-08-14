@@ -81,8 +81,6 @@ m.mp34  →  m.MultiplyPoint3x4
 
 ## ⚙ Installation
 
-Requires Unity 2022.3 or newer.
-
 Add via `Packages/manifest.json`:
 
 ```json
@@ -271,7 +269,7 @@ See the full guide: **[Extending Commands](Docs~/ExtendingCommands.md)**
 
 | Dependency | Version |
 |------------|---------|
-| Unity | 2022 |
+| Unity | 2022.3+ |
 | Python | 3.7+ (on system `PATH`) |
 | Windows Terminal | Optional (falls back to Python directly) |
 

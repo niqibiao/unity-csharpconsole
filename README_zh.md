@@ -81,8 +81,6 @@ m.mp34  →  m.MultiplyPoint3x4
 
 ## ⚙ 安装
 
-需要 Unity 2022.3 或更高版本。
-
 通过 `Packages/manifest.json` 添加：
 
 ```json
@@ -271,7 +269,7 @@ Tab 补全支持命令名和参数名。
 
 | 依赖 | 版本 |
 |------|------|
-| Unity | 2022 |
+| Unity | 2022.3+ |
 | Python | 3.7+（系统 PATH 可访问） |
 | Windows Terminal | 可选（不可用时回退到直接启动 Python） |
 
