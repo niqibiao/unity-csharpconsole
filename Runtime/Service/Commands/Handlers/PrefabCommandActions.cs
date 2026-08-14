@@ -747,7 +747,12 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     }
 
                     so.ApplyModifiedProperties();
-                    PrefabUtility.SavePrefabAsset(root);
+                    PrefabUtility.SavePrefabAsset(root, out var saved);
+                    if (!saved)
+                    {
+                        return (error: $"Failed to modify the component on prefab '{assetPath}'",
+                            result: (AssetModifyComponentResult)null);
+                    }
 
                     return (error: (string)null, result: new AssetModifyComponentResult
                     {
@@ -810,7 +815,12 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     if (comp == null)
                         return (error: $"Failed to add component '{typeName}' to '{go.name}'", result: (AssetAddComponentResult)null);
 
-                    PrefabUtility.SavePrefabAsset(root);
+                    PrefabUtility.SavePrefabAsset(root, out var saved);
+                    if (!saved)
+                    {
+                        return (error: $"Failed to add the component to prefab '{assetPath}'",
+                            result: (AssetAddComponentResult)null);
+                    }
 
                     return (error: (string)null, result: new AssetAddComponentResult
                     {
@@ -877,7 +887,12 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                         return (error: $"Component index {index} is out of range (0..{comps.Length - 1})", result: (AssetRemoveComponentResult)null);
 
                     UnityEngine.Object.DestroyImmediate(comps[index], true);
-                    PrefabUtility.SavePrefabAsset(root);
+                    PrefabUtility.SavePrefabAsset(root, out var saved);
+                    if (!saved)
+                    {
+                        return (error: $"Failed to remove the component from prefab '{assetPath}'",
+                            result: (AssetRemoveComponentResult)null);
+                    }
 
                     return (error: (string)null, result: new AssetRemoveComponentResult
                     {
@@ -947,7 +962,12 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     if (active.HasValue) go.SetActive(active.Value);
                     if (isStatic.HasValue) go.isStatic = isStatic.Value;
 
-                    PrefabUtility.SavePrefabAsset(root);
+                    PrefabUtility.SavePrefabAsset(root, out var saved);
+                    if (!saved)
+                    {
+                        return (error: $"Failed to modify the GameObject in prefab '{assetPath}'",
+                            result: (AssetModifyGameObjectResult)null);
+                    }
 
                     return (error: (string)null, result: new AssetModifyGameObjectResult
                     {
