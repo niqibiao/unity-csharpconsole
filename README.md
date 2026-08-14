@@ -81,6 +81,8 @@ m.mp34  →  m.MultiplyPoint3x4
 
 ## ⚙ Installation
 
+Requires Unity 2022.3 or newer.
+
 Add via `Packages/manifest.json`:
 
 ```json
