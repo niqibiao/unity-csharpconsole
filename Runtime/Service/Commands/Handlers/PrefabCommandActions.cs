@@ -214,7 +214,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             }
             catch (Exception exception)
             {
-                EditorSceneManager.ClosePreviewScene(previewScene);
+                ClosePrefabMutationScene(previewScene);
                 previewScene = default;
                 error = $"Failed to create an isolated prefab instance for '{assetPath}': {exception.Message}";
                 assetRoot = null;
@@ -225,11 +225,8 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 EditorUtility.IsPersistent(instanceRoot) ||
                 !PrefabUtility.IsPartOfPrefabInstance(instanceRoot))
             {
-                if (previewScene.IsValid())
-                {
-                    EditorSceneManager.ClosePreviewScene(previewScene);
-                    previewScene = default;
-                }
+                ClosePrefabMutationScene(previewScene);
+                previewScene = default;
 
                 error = $"Failed to create an isolated prefab instance for '{assetPath}'";
                 assetRoot = null;
@@ -1038,7 +1035,13 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 var expectedName = string.IsNullOrEmpty(name)
                     ? "GameObject"
                     : name;
-                var child = new GameObject(expectedName);
+                // Create straight into the preview scene. `new GameObject` would
+                // land in whichever scene the user has open, and a throw before
+                // the reparent would strand it there.
+                var child = ObjectFactory.CreateGameObject(
+                    previewScene,
+                    HideFlags.None,
+                    expectedName);
                 child.transform.SetParent(instanceParent.transform, false);
                 if (EditorUtility.IsPersistent(child) ||
                     !PrefabUtility.IsAddedGameObjectOverride(child))
