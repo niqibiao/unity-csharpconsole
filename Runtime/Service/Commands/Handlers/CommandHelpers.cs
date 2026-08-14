@@ -253,55 +253,6 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             return prefab;
         }
 
-        internal static GameObject ResolvePrefabGameObject(string assetPath, string gameObjectPath, out GameObject root, out string error)
-        {
-            root = LoadPrefabAsset(assetPath, out error);
-            if (root == null) return null;
-
-            if (string.IsNullOrEmpty(gameObjectPath) || gameObjectPath == "/")
-            {
-                return root;
-            }
-
-            var segments = gameObjectPath.TrimStart('/').Split('/');
-            var current = root.transform;
-            for (var i = 0; i < segments.Length; i++)
-            {
-                Transform child = null;
-                for (var j = 0; j < current.childCount; j++)
-                {
-                    var c = current.GetChild(j);
-                    if (c.name == segments[i]) { child = c; break; }
-                }
-
-                if (child == null)
-                {
-                    error = $"Child '{segments[i]}' not found at depth {i} in prefab '{assetPath}'";
-                    return null;
-                }
-
-                current = child;
-            }
-
-            return current.gameObject;
-        }
-
-        internal static string GetPrefabRelativePath(Transform node, Transform root)
-        {
-            if (node == null || node == root) return "";
-
-            var sb = new System.Text.StringBuilder(node.name);
-            var current = node.parent;
-            while (current != null && current != root)
-            {
-                sb.Insert(0, '/');
-                sb.Insert(0, current.name);
-                current = current.parent;
-            }
-
-            return sb.ToString();
-        }
-
         // ── Shared SerializedProperty helpers ──
 
         [Serializable]

@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 #if UNITY_EDITOR
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 #endif
 using Zh1Zh1.CSharpConsole.Service.Commands.Core;
 using Zh1Zh1.CSharpConsole.Service.Commands.Routing;
@@ -178,12 +180,204 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         //  Prefab asset-level commands
         // ══════════════════════════════════════════════════════
 
+        private static GameObject InstantiatePrefabForAssetMutation(
+            string assetPath,
+            out Scene previewScene,
+            out GameObject assetRoot,
+            out string error)
+        {
+            previewScene = default;
+            assetRoot = CommandHelpers.LoadPrefabAsset(assetPath, out error);
+            if (assetRoot == null)
+                return null;
+
+            if (!EditorUtility.IsPersistent(assetRoot) ||
+                !PrefabUtility.IsPartOfPrefabAsset(assetRoot))
+            {
+                error = $"'{assetPath}' is not a persistent prefab asset";
+                assetRoot = null;
+                return null;
+            }
+
+            if (PrefabUtility.IsPartOfImmutablePrefab(assetRoot))
+            {
+                error = $"Prefab asset '{assetPath}' is immutable";
+                assetRoot = null;
+                return null;
+            }
+
+            previewScene = EditorSceneManager.NewPreviewScene();
+            GameObject instanceRoot;
+            try
+            {
+                instanceRoot = PrefabUtility.InstantiatePrefab(assetRoot, previewScene) as GameObject;
+            }
+            catch (Exception exception)
+            {
+                ClosePrefabMutationScene(previewScene);
+                previewScene = default;
+                error = $"Failed to create an isolated prefab instance for '{assetPath}': {exception.Message}";
+                assetRoot = null;
+                return null;
+            }
+
+            if (instanceRoot == null ||
+                EditorUtility.IsPersistent(instanceRoot) ||
+                !PrefabUtility.IsPartOfPrefabInstance(instanceRoot))
+            {
+                ClosePrefabMutationScene(previewScene);
+                previewScene = default;
+
+                error = $"Failed to create an isolated prefab instance for '{assetPath}'";
+                assetRoot = null;
+                return null;
+            }
+
+            return instanceRoot;
+        }
+
+        private static bool TryResolvePrefabMutationPair(
+            PrefabLocatorIndex assetIndex,
+            PrefabLocatorIndex instanceIndex,
+            string gameObjectPath,
+            out GameObject assetGameObject,
+            out GameObject instanceGameObject,
+            out string error)
+        {
+            assetGameObject = assetIndex.Resolve(gameObjectPath, out error);
+            instanceGameObject = null;
+            if (assetGameObject == null)
+                return false;
+
+            instanceGameObject = instanceIndex.Resolve(gameObjectPath, out error);
+            if (instanceGameObject == null)
+                return false;
+
+            if (!assetIndex.TryGetLocalId(assetGameObject, out var assetLocalId) ||
+                !instanceIndex.TryGetLocalId(instanceGameObject, out var instanceLocalId) ||
+                assetLocalId != instanceLocalId)
+            {
+                error = $"GameObject locator does not map to the same serialized object in '{assetIndex.AssetPath}'";
+                return false;
+            }
+
+            if (!EditorUtility.IsPersistent(assetGameObject) ||
+                EditorUtility.IsPersistent(instanceGameObject))
+            {
+                error = "Prefab mutation requires a persistent asset object and its non-persistent instance";
+                return false;
+            }
+
+            return true;
+        }
+
+        private static PrefabLocatorIndex LoadPrefabLocatorIndex(
+            string assetPath,
+            out GameObject root,
+            out string error)
+        {
+            root = CommandHelpers.LoadPrefabAsset(assetPath, out error);
+            return root == null
+                ? null
+                : PrefabLocatorIndex.Create(root, assetPath, out error);
+        }
+
+        private static PrefabLocatorIndex ReloadPrefabLocatorIndex(
+            string assetPath,
+            out GameObject root,
+            out string error)
+        {
+            root = null;
+            error = null;
+            try
+            {
+                AssetDatabase.ImportAsset(
+                    assetPath,
+                    ImportAssetOptions.ForceUpdate |
+                    ImportAssetOptions.ForceSynchronousImport);
+                return LoadPrefabLocatorIndex(assetPath, out root, out error);
+            }
+            catch (Exception exception)
+            {
+                error = $"Failed to reload prefab '{assetPath}': {exception.Message}";
+                root = null;
+                return null;
+            }
+        }
+
+        private static bool IdSequenceEquals(long[] left, long[] right)
+        {
+            left ??= Array.Empty<long>();
+            right ??= Array.Empty<long>();
+            if (left.Length != right.Length)
+                return false;
+
+            for (var index = 0; index < left.Length; index++)
+            {
+                if (left[index] != right[index])
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static long[] RemoveId(long[] source, long removedId)
+        {
+            source ??= Array.Empty<long>();
+            var result = new List<long>(Math.Max(0, source.Length - 1));
+            foreach (var localId in source)
+            {
+                if (localId != removedId)
+                    result.Add(localId);
+            }
+
+            return result.ToArray();
+        }
+
+        private static string ApplyFailureSuffix(Exception applyException)
+        {
+            return applyException == null
+                ? ""
+                : $" Unity reported: {applyException.Message}";
+        }
+
+        private static CommandResponse PrefabStateUncertain(
+            string operation,
+            string assetPath,
+            string detail,
+            Exception applyException)
+        {
+            return CommandResponseFactory.SystemError(
+                $"Prefab asset state uncertain; do not retry. "
+                + $"{operation} on '{assetPath}' could not be reconciled: {detail}"
+                + ApplyFailureSuffix(applyException));
+        }
+
+        private static void ClosePrefabMutationScene(Scene previewScene)
+        {
+            if (!previewScene.IsValid())
+                return;
+
+            try
+            {
+                EditorSceneManager.ClosePreviewScene(previewScene);
+            }
+            catch (Exception exception)
+            {
+                // Cleanup failure must not replace a reconciled mutation result:
+                // retrying an already committed add/remove would be destructive.
+                Debug.LogWarning(
+                    "[CSharpConsole] Failed to close prefab mutation preview "
+                    + $"scene: {exception.Message}");
+            }
+        }
+
         // ── asset_hierarchy ──
 
         [Serializable]
         private sealed class AssetHierarchyNode
         {
-            public int instanceId;
+            public string gameObjectPath = "";
             public string name = "";
             public bool activeSelf;
             public int childCount;
@@ -216,8 +410,12 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             return CommandHelpers.RunCommand<AssetHierarchyResult>(
                 () =>
                 {
-                    var root = CommandHelpers.LoadPrefabAsset(assetPath, out var error);
-                    if (root == null) return (error, result: (AssetHierarchyResult)null);
+                    var locatorIndex = LoadPrefabLocatorIndex(
+                        assetPath,
+                        out var root,
+                        out var error);
+                    if (locatorIndex == null)
+                        return (error, result: (AssetHierarchyResult)null);
 
                     var nodeCount = 0;
                     const int maxNodes = 5000;
@@ -226,20 +424,38 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     {
                         assetPath = assetPath,
                         rootName = root.name,
-                        root = BuildAssetHierarchyNode(root.transform, depth, 0, includeComponents, ref nodeCount, maxNodes)
+                        root = BuildAssetHierarchyNode(
+                            root.transform,
+                            locatorIndex,
+                            depth,
+                            0,
+                            includeComponents,
+                            ref nodeCount,
+                            maxNodes)
                     });
                 },
                 r => $"Prefab '{r.rootName}' hierarchy"
             );
         }
 
-        private static AssetHierarchyNode BuildAssetHierarchyNode(Transform t, int maxDepth, int currentDepth, bool includeComponents, ref int nodeCount, int maxNodes)
+        private static AssetHierarchyNode BuildAssetHierarchyNode(
+            Transform t,
+            PrefabLocatorIndex locatorIndex,
+            int maxDepth,
+            int currentDepth,
+            bool includeComponents,
+            ref int nodeCount,
+            int maxNodes)
         {
             nodeCount++;
             var go = t.gameObject;
+            var locator = locatorIndex.GetLocator(go, out var locatorError);
+            if (locator == null)
+                throw new InvalidOperationException(locatorError);
+
             var node = new AssetHierarchyNode
             {
-                instanceId = go.GetInstanceID(),
+                gameObjectPath = locator,
                 name = go.name,
                 activeSelf = go.activeSelf,
                 childCount = t.childCount
@@ -261,7 +477,14 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 var children = new List<AssetHierarchyNode>(t.childCount);
                 for (var i = 0; i < t.childCount && nodeCount < maxNodes; i++)
                 {
-                    children.Add(BuildAssetHierarchyNode(t.GetChild(i), maxDepth, currentDepth + 1, includeComponents, ref nodeCount, maxNodes));
+                    children.Add(BuildAssetHierarchyNode(
+                        t.GetChild(i),
+                        locatorIndex,
+                        maxDepth,
+                        currentDepth + 1,
+                        includeComponents,
+                        ref nodeCount,
+                        maxNodes));
                 }
                 node.children = children.ToArray();
             }
@@ -318,8 +541,17 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             return CommandHelpers.RunCommand<AssetGetResult>(
                 () =>
                 {
-                    var go = CommandHelpers.ResolvePrefabGameObject(assetPath, gameObjectPath, out var root, out var error);
+                    var locatorIndex = LoadPrefabLocatorIndex(
+                        assetPath,
+                        out _,
+                        out var error);
+                    if (locatorIndex == null)
+                        return (error, result: (AssetGetResult)null);
+                    var go = locatorIndex.Resolve(gameObjectPath, out error);
                     if (go == null) return (error, result: (AssetGetResult)null);
+                    var locator = locatorIndex.GetLocator(go, out error);
+                    if (locator == null)
+                        return (error, result: (AssetGetResult)null);
 
                     var t = go.transform;
                     var comps = go.GetComponents<Component>();
@@ -338,7 +570,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     return (error: (string)null, result: new AssetGetResult
                     {
                         assetPath = assetPath,
-                        gameObjectPath = CommandHelpers.GetPrefabRelativePath(t, root.transform),
+                        gameObjectPath = locator,
                         instanceId = go.GetInstanceID(),
                         name = go.name,
                         tag = go.tag,
@@ -390,8 +622,17 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             return CommandHelpers.RunCommand<AssetGetComponentResult>(
                 () =>
                 {
-                    var go = CommandHelpers.ResolvePrefabGameObject(assetPath, gameObjectPath, out var root, out var error);
+                    var locatorIndex = LoadPrefabLocatorIndex(
+                        assetPath,
+                        out _,
+                        out var error);
+                    if (locatorIndex == null)
+                        return (error, result: (AssetGetComponentResult)null);
+                    var go = locatorIndex.Resolve(gameObjectPath, out error);
                     if (go == null) return (error, result: (AssetGetComponentResult)null);
+                    var locator = locatorIndex.GetLocator(go, out error);
+                    if (locator == null)
+                        return (error, result: (AssetGetComponentResult)null);
 
                     var type = CommandHelpers.ResolveType(typeName, out var typeError);
                     if (type == null) return (error: typeError, result: (AssetGetComponentResult)null);
@@ -425,7 +666,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     return (error: (string)null, result: new AssetGetComponentResult
                     {
                         assetPath = assetPath,
-                        gameObjectPath = CommandHelpers.GetPrefabRelativePath(go.transform, root.transform),
+                        gameObjectPath = locator,
                         typeName = type.Name,
                         componentInstanceId = comp.GetInstanceID(),
                         properties = props.ToArray()
@@ -469,8 +710,17 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             return CommandHelpers.RunCommand<AssetModifyComponentResult>(
                 () =>
                 {
-                    var go = CommandHelpers.ResolvePrefabGameObject(assetPath, gameObjectPath, out var root, out var error);
+                    var locatorIndex = LoadPrefabLocatorIndex(
+                        assetPath,
+                        out var root,
+                        out var error);
+                    if (locatorIndex == null)
+                        return (error, result: (AssetModifyComponentResult)null);
+                    var go = locatorIndex.Resolve(gameObjectPath, out error);
                     if (go == null) return (error, result: (AssetModifyComponentResult)null);
+                    var locator = locatorIndex.GetLocator(go, out error);
+                    if (locator == null)
+                        return (error, result: (AssetModifyComponentResult)null);
 
                     var type = CommandHelpers.ResolveType(typeName, out var typeError);
                     if (type == null) return (error: typeError, result: (AssetModifyComponentResult)null);
@@ -497,12 +747,17 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     }
 
                     so.ApplyModifiedProperties();
-                    PrefabUtility.SavePrefabAsset(root);
+                    PrefabUtility.SavePrefabAsset(root, out var saved);
+                    if (!saved)
+                    {
+                        return (error: $"Failed to modify the component on prefab '{assetPath}'",
+                            result: (AssetModifyComponentResult)null);
+                    }
 
                     return (error: (string)null, result: new AssetModifyComponentResult
                     {
                         assetPath = assetPath,
-                        gameObjectPath = CommandHelpers.GetPrefabRelativePath(go.transform, root.transform),
+                        gameObjectPath = locator,
                         typeName = type.Name,
                         modifiedFields = modifiedFields.ToArray()
                     });
@@ -541,8 +796,17 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             return CommandHelpers.RunCommand<AssetAddComponentResult>(
                 () =>
                 {
-                    var go = CommandHelpers.ResolvePrefabGameObject(assetPath, gameObjectPath, out var root, out var error);
+                    var locatorIndex = LoadPrefabLocatorIndex(
+                        assetPath,
+                        out var root,
+                        out var error);
+                    if (locatorIndex == null)
+                        return (error, result: (AssetAddComponentResult)null);
+                    var go = locatorIndex.Resolve(gameObjectPath, out error);
                     if (go == null) return (error, result: (AssetAddComponentResult)null);
+                    var locator = locatorIndex.GetLocator(go, out error);
+                    if (locator == null)
+                        return (error, result: (AssetAddComponentResult)null);
 
                     var type = CommandHelpers.ResolveType(typeName, out var typeError);
                     if (type == null) return (error: typeError, result: (AssetAddComponentResult)null);
@@ -551,12 +815,17 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     if (comp == null)
                         return (error: $"Failed to add component '{typeName}' to '{go.name}'", result: (AssetAddComponentResult)null);
 
-                    PrefabUtility.SavePrefabAsset(root);
+                    PrefabUtility.SavePrefabAsset(root, out var saved);
+                    if (!saved)
+                    {
+                        return (error: $"Failed to add the component to prefab '{assetPath}'",
+                            result: (AssetAddComponentResult)null);
+                    }
 
                     return (error: (string)null, result: new AssetAddComponentResult
                     {
                         assetPath = assetPath,
-                        gameObjectPath = CommandHelpers.GetPrefabRelativePath(go.transform, root.transform),
+                        gameObjectPath = locator,
                         typeName = type.Name,
                         componentInstanceId = comp.GetInstanceID()
                     });
@@ -596,8 +865,17 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             return CommandHelpers.RunCommand<AssetRemoveComponentResult>(
                 () =>
                 {
-                    var go = CommandHelpers.ResolvePrefabGameObject(assetPath, gameObjectPath, out var root, out var error);
+                    var locatorIndex = LoadPrefabLocatorIndex(
+                        assetPath,
+                        out var root,
+                        out var error);
+                    if (locatorIndex == null)
+                        return (error, result: (AssetRemoveComponentResult)null);
+                    var go = locatorIndex.Resolve(gameObjectPath, out error);
                     if (go == null) return (error, result: (AssetRemoveComponentResult)null);
+                    var locator = locatorIndex.GetLocator(go, out error);
+                    if (locator == null)
+                        return (error, result: (AssetRemoveComponentResult)null);
 
                     var type = CommandHelpers.ResolveType(typeName, out var typeError);
                     if (type == null) return (error: typeError, result: (AssetRemoveComponentResult)null);
@@ -609,12 +887,17 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                         return (error: $"Component index {index} is out of range (0..{comps.Length - 1})", result: (AssetRemoveComponentResult)null);
 
                     UnityEngine.Object.DestroyImmediate(comps[index], true);
-                    PrefabUtility.SavePrefabAsset(root);
+                    PrefabUtility.SavePrefabAsset(root, out var saved);
+                    if (!saved)
+                    {
+                        return (error: $"Failed to remove the component from prefab '{assetPath}'",
+                            result: (AssetRemoveComponentResult)null);
+                    }
 
                     return (error: (string)null, result: new AssetRemoveComponentResult
                     {
                         assetPath = assetPath,
-                        gameObjectPath = CommandHelpers.GetPrefabRelativePath(go.transform, root.transform),
+                        gameObjectPath = locator,
                         typeName = type.Name,
                         removed = true
                     });
@@ -661,8 +944,17 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             return CommandHelpers.RunCommand<AssetModifyGameObjectResult>(
                 () =>
                 {
-                    var go = CommandHelpers.ResolvePrefabGameObject(assetPath, gameObjectPath, out var root, out var error);
+                    var locatorIndex = LoadPrefabLocatorIndex(
+                        assetPath,
+                        out var root,
+                        out var error);
+                    if (locatorIndex == null)
+                        return (error, result: (AssetModifyGameObjectResult)null);
+                    var go = locatorIndex.Resolve(gameObjectPath, out error);
                     if (go == null) return (error, result: (AssetModifyGameObjectResult)null);
+                    var locator = locatorIndex.GetLocator(go, out error);
+                    if (locator == null)
+                        return (error, result: (AssetModifyGameObjectResult)null);
 
                     if (!string.IsNullOrEmpty(name)) go.name = name;
                     if (!string.IsNullOrEmpty(tag)) go.tag = tag;
@@ -670,12 +962,17 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     if (active.HasValue) go.SetActive(active.Value);
                     if (isStatic.HasValue) go.isStatic = isStatic.Value;
 
-                    PrefabUtility.SavePrefabAsset(root);
+                    PrefabUtility.SavePrefabAsset(root, out var saved);
+                    if (!saved)
+                    {
+                        return (error: $"Failed to modify the GameObject in prefab '{assetPath}'",
+                            result: (AssetModifyGameObjectResult)null);
+                    }
 
                     return (error: (string)null, result: new AssetModifyGameObjectResult
                     {
                         assetPath = assetPath,
-                        gameObjectPath = CommandHelpers.GetPrefabRelativePath(go.transform, root.transform),
+                        gameObjectPath = locator,
                         name = go.name
                     });
                 },
@@ -707,26 +1004,216 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             if (string.IsNullOrEmpty(assetPath))
                 return CommandResponseFactory.ValidationError("assetPath is required for prefab/asset_add_gameobject");
 
-            return CommandHelpers.RunCommand<AssetAddGameObjectResult>(
-                () =>
+            var instanceRoot = InstantiatePrefabForAssetMutation(
+                assetPath,
+                out var previewScene,
+                out var assetRoot,
+                out var error);
+            if (instanceRoot == null)
+                return CommandResponseFactory.ValidationError(error);
+
+            try
+            {
+                var assetIndex = PrefabLocatorIndex.Create(
+                    assetRoot,
+                    assetPath,
+                    out error);
+                if (assetIndex == null)
+                    return CommandResponseFactory.ValidationError(error);
+
+                var instanceIndex = PrefabLocatorIndex.Create(
+                    instanceRoot,
+                    assetPath,
+                    out error);
+                if (instanceIndex == null)
+                    return CommandResponseFactory.ValidationError(error);
+
+                if (!TryResolvePrefabMutationPair(
+                    assetIndex,
+                    instanceIndex,
+                    parentPath,
+                    out var assetParent,
+                    out var instanceParent,
+                    out error))
                 {
-                    var parent = CommandHelpers.ResolvePrefabGameObject(assetPath, parentPath, out var root, out var error);
-                    if (parent == null) return (error, result: (AssetAddGameObjectResult)null);
+                    return CommandResponseFactory.ValidationError(error);
+                }
 
-                    var child = new GameObject(string.IsNullOrEmpty(name) ? "GameObject" : name);
-                    child.transform.SetParent(parent.transform, false);
+                if (!assetIndex.TryGetLocalId(assetParent, out var parentLocalId))
+                {
+                    return CommandResponseFactory.ValidationError(
+                        $"Cannot read the parent identity in prefab '{assetPath}'");
+                }
 
-                    PrefabUtility.SavePrefabAsset(root);
+                var beforeLocalIds = assetIndex.CopyLocalIds();
+                var beforeSiblingIds = assetIndex.GetDirectChildIds(
+                    assetParent,
+                    out error);
+                if (beforeSiblingIds == null)
+                    return CommandResponseFactory.ValidationError(error);
 
-                    return (error: (string)null, result: new AssetAddGameObjectResult
+                var expectedName = string.IsNullOrEmpty(name)
+                    ? "GameObject"
+                    : name;
+                // Create straight into the preview scene. `new GameObject` would
+                // land in whichever scene the user has open, and a throw before
+                // the reparent would strand it there.
+                var child = ObjectFactory.CreateGameObject(
+                    previewScene,
+                    HideFlags.None,
+                    expectedName);
+                child.transform.SetParent(instanceParent.transform, false);
+                if (EditorUtility.IsPersistent(child) ||
+                    !PrefabUtility.IsAddedGameObjectOverride(child))
+                {
+                    return CommandResponseFactory.ValidationError(
+                        "Failed to create an added GameObject override on the isolated prefab instance");
+                }
+
+                Exception applyException = null;
+                try
+                {
+                    PrefabUtility.ApplyAddedGameObject(
+                        child,
+                        assetPath,
+                        InteractionMode.AutomatedAction);
+                }
+                catch (Exception exception)
+                {
+                    applyException = exception;
+                }
+
+                try
+                {
+                    var afterIndex = ReloadPrefabLocatorIndex(
+                        assetPath,
+                        out _,
+                        out error);
+                    if (afterIndex == null)
                     {
-                        assetPath = assetPath,
-                        gameObjectPath = CommandHelpers.GetPrefabRelativePath(child.transform, root.transform),
-                        name = child.name
-                    });
-                },
-                r => $"Added '{r.name}' to prefab"
-            );
+                        return PrefabStateUncertain(
+                            "Add GameObject",
+                            assetPath,
+                            error,
+                            applyException);
+                    }
+
+                    var afterLocalIds = afterIndex.CopyLocalIds();
+                    var addedLocalIds = new HashSet<long>(afterLocalIds);
+                    addedLocalIds.ExceptWith(beforeLocalIds);
+                    var missingLocalIds = new HashSet<long>(beforeLocalIds);
+                    missingLocalIds.ExceptWith(afterLocalIds);
+
+                    var parentExists = afterIndex.TryGetGameObject(
+                        parentLocalId,
+                        out var afterParent);
+                    var afterSiblingIds = parentExists
+                        ? afterIndex.GetDirectChildIds(afterParent, out error)
+                        : null;
+                    if (parentExists && afterSiblingIds == null)
+                    {
+                        return PrefabStateUncertain(
+                            "Add GameObject",
+                            assetPath,
+                            error,
+                            applyException);
+                    }
+
+                    GameObject addedGameObject = null;
+                    long addedLocalId = 0;
+                    foreach (var localId in addedLocalIds)
+                    {
+                        addedLocalId = localId;
+                        afterIndex.TryGetGameObject(localId, out addedGameObject);
+                    }
+
+                    var addedUnderExpectedParent = false;
+                    if (addedGameObject != null &&
+                        addedGameObject.transform.parent != null &&
+                        afterIndex.TryGetLocalId(
+                            addedGameObject.transform.parent.gameObject,
+                            out var addedParentLocalId))
+                    {
+                        addedUnderExpectedParent =
+                            addedParentLocalId == parentLocalId;
+                    }
+
+                    var siblingsWithoutAdded = addedLocalIds.Count == 1 &&
+                        afterSiblingIds != null
+                            ? RemoveId(afterSiblingIds, addedLocalId)
+                            : null;
+                    var confirmedSuccess =
+                        addedLocalIds.Count == 1 &&
+                        missingLocalIds.Count == 0 &&
+                        parentExists &&
+                        addedGameObject != null &&
+                        addedUnderExpectedParent &&
+                        string.Equals(
+                            addedGameObject.name,
+                            expectedName,
+                            StringComparison.Ordinal) &&
+                        IdSequenceEquals(
+                            siblingsWithoutAdded,
+                            beforeSiblingIds);
+
+                    if (confirmedSuccess)
+                    {
+                        var persistedLocator = afterIndex.GetLocator(
+                            addedGameObject,
+                            out error);
+                        if (persistedLocator == null)
+                        {
+                            return PrefabStateUncertain(
+                                "Add GameObject",
+                                assetPath,
+                                error,
+                                applyException);
+                        }
+
+                        var result = new AssetAddGameObjectResult
+                        {
+                            assetPath = assetPath,
+                            gameObjectPath = persistedLocator,
+                            name = addedGameObject.name
+                        };
+                        return CommandResponseFactory.Ok(
+                            $"Added '{result.name}' to prefab",
+                            JsonUtility.ToJson(result));
+                    }
+
+                    var confirmedNoChange =
+                        afterLocalIds.SetEquals(beforeLocalIds) &&
+                        parentExists &&
+                        IdSequenceEquals(afterSiblingIds, beforeSiblingIds);
+                    if (confirmedNoChange)
+                    {
+                        return CommandResponseFactory.ValidationError(
+                            $"Failed to add '{expectedName}' to prefab '{assetPath}'; "
+                            + "the prefab asset remained unchanged."
+                            + ApplyFailureSuffix(applyException));
+                    }
+
+                    return PrefabStateUncertain(
+                        "Add GameObject",
+                        assetPath,
+                        $"expected exactly one new child under parent local ID {parentLocalId}, "
+                        + $"but observed {addedLocalIds.Count} added and "
+                        + $"{missingLocalIds.Count} missing GameObject ID(s)",
+                        applyException);
+                }
+                catch (Exception exception)
+                {
+                    return PrefabStateUncertain(
+                        "Add GameObject",
+                        assetPath,
+                        $"reconciliation failed: {exception.Message}",
+                        applyException);
+                }
+            }
+            finally
+            {
+                ClosePrefabMutationScene(previewScene);
+            }
         }
 
         // ── asset_remove_gameobject ──
@@ -754,28 +1241,201 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             if (string.IsNullOrEmpty(gameObjectPath))
                 return CommandResponseFactory.ValidationError("gameObjectPath is required for prefab/asset_remove_gameobject (cannot remove root)");
 
-            return CommandHelpers.RunCommand<AssetRemoveGameObjectResult>(
-                () =>
+            var instanceRoot = InstantiatePrefabForAssetMutation(
+                assetPath,
+                out var previewScene,
+                out var assetRoot,
+                out var error);
+            if (instanceRoot == null)
+                return CommandResponseFactory.ValidationError(error);
+
+            try
+            {
+                var assetIndex = PrefabLocatorIndex.Create(
+                    assetRoot,
+                    assetPath,
+                    out error);
+                if (assetIndex == null)
+                    return CommandResponseFactory.ValidationError(error);
+
+                var instanceIndex = PrefabLocatorIndex.Create(
+                    instanceRoot,
+                    assetPath,
+                    out error);
+                if (instanceIndex == null)
+                    return CommandResponseFactory.ValidationError(error);
+
+                if (!TryResolvePrefabMutationPair(
+                    assetIndex,
+                    instanceIndex,
+                    gameObjectPath,
+                    out var assetGameObject,
+                    out var instanceGameObject,
+                    out error))
                 {
-                    var go = CommandHelpers.ResolvePrefabGameObject(assetPath, gameObjectPath, out var root, out var error);
-                    if (go == null) return (error, result: (AssetRemoveGameObjectResult)null);
+                    return CommandResponseFactory.ValidationError(error);
+                }
 
-                    if (go == root)
-                        return (error: "Cannot remove the root GameObject of a prefab asset", result: (AssetRemoveGameObjectResult)null);
+                if (assetGameObject == assetRoot)
+                {
+                    return CommandResponseFactory.ValidationError(
+                        "Cannot remove the root GameObject of a prefab asset");
+                }
 
-                    var path = CommandHelpers.GetPrefabRelativePath(go.transform, root.transform);
-                    UnityEngine.Object.DestroyImmediate(go, true);
-                    PrefabUtility.SavePrefabAsset(root);
+                var instanceParent = instanceGameObject.transform.parent;
+                var assetParent = assetGameObject.transform.parent;
+                if (instanceParent == null || assetParent == null)
+                {
+                    return CommandResponseFactory.ValidationError(
+                        "Cannot remove the root GameObject of a prefab asset");
+                }
 
-                    return (error: (string)null, result: new AssetRemoveGameObjectResult
+                if (!assetIndex.TryGetLocalId(
+                        assetGameObject,
+                        out var targetLocalId) ||
+                    !assetIndex.TryGetLocalId(
+                        assetParent.gameObject,
+                        out var parentLocalId))
+                {
+                    return CommandResponseFactory.ValidationError(
+                        $"Cannot read removal identities in prefab '{assetPath}'");
+                }
+
+                var originalLocator = assetIndex.GetLocator(
+                    assetGameObject,
+                    out error);
+                if (originalLocator == null)
+                    return CommandResponseFactory.ValidationError(error);
+
+                var beforeLocalIds = assetIndex.CopyLocalIds();
+                var removedSubtreeIds = assetIndex.GetSubtreeIds(
+                    assetGameObject,
+                    out error);
+                if (removedSubtreeIds == null)
+                    return CommandResponseFactory.ValidationError(error);
+
+                var beforeSiblingIds = assetIndex.GetDirectChildIds(
+                    assetParent.gameObject,
+                    out error);
+                if (beforeSiblingIds == null)
+                    return CommandResponseFactory.ValidationError(error);
+
+                var expectedLocalIds = new HashSet<long>(beforeLocalIds);
+                expectedLocalIds.ExceptWith(removedSubtreeIds);
+                var expectedSiblingIds = RemoveId(
+                    beforeSiblingIds,
+                    targetLocalId);
+
+                UnityEngine.Object.DestroyImmediate(instanceGameObject);
+
+                Exception applyException = null;
+                try
+                {
+                    PrefabUtility.ApplyRemovedGameObject(
+                        instanceParent.gameObject,
+                        assetGameObject,
+                        InteractionMode.AutomatedAction);
+                }
+                catch (Exception exception)
+                {
+                    applyException = exception;
+                }
+
+                try
+                {
+                    var afterIndex = ReloadPrefabLocatorIndex(
+                        assetPath,
+                        out _,
+                        out error);
+                    if (afterIndex == null)
                     {
-                        assetPath = assetPath,
-                        gameObjectPath = path,
-                        removed = true
-                    });
-                },
-                r => $"Removed '{r.gameObjectPath}' from prefab"
-            );
+                        return PrefabStateUncertain(
+                            "Remove GameObject",
+                            assetPath,
+                            error,
+                            applyException);
+                    }
+
+                    var afterLocalIds = afterIndex.CopyLocalIds();
+                    var targetExists = afterIndex.TryGetGameObject(
+                        targetLocalId,
+                        out _);
+                    var parentExists = afterIndex.TryGetGameObject(
+                        parentLocalId,
+                        out var afterParent);
+                    var afterSiblingIds = parentExists
+                        ? afterIndex.GetDirectChildIds(afterParent, out error)
+                        : null;
+                    if (parentExists && afterSiblingIds == null)
+                    {
+                        return PrefabStateUncertain(
+                            "Remove GameObject",
+                            assetPath,
+                            error,
+                            applyException);
+                    }
+
+                    var confirmedSuccess =
+                        !targetExists &&
+                        parentExists &&
+                        afterLocalIds.SetEquals(expectedLocalIds) &&
+                        IdSequenceEquals(
+                            afterSiblingIds,
+                            expectedSiblingIds);
+                    if (confirmedSuccess)
+                    {
+                        var result = new AssetRemoveGameObjectResult
+                        {
+                            assetPath = assetPath,
+                            gameObjectPath = originalLocator,
+                            removed = true
+                        };
+                        return CommandResponseFactory.Ok(
+                            $"Removed '{result.gameObjectPath}' from prefab",
+                            JsonUtility.ToJson(result));
+                    }
+
+                    var confirmedNoChange =
+                        targetExists &&
+                        afterLocalIds.SetEquals(beforeLocalIds) &&
+                        parentExists &&
+                        IdSequenceEquals(
+                            afterSiblingIds,
+                            beforeSiblingIds);
+                    if (confirmedNoChange)
+                    {
+                        return CommandResponseFactory.ValidationError(
+                            $"Failed to remove '{originalLocator}' from prefab '{assetPath}'; "
+                            + "the prefab asset remained unchanged."
+                            + ApplyFailureSuffix(applyException));
+                    }
+
+                    var unexpectedIds = new HashSet<long>(afterLocalIds);
+                    unexpectedIds.ExceptWith(expectedLocalIds);
+                    var missingUnrelatedIds = new HashSet<long>(expectedLocalIds);
+                    missingUnrelatedIds.ExceptWith(afterLocalIds);
+                    return PrefabStateUncertain(
+                        "Remove GameObject",
+                        assetPath,
+                        $"target local ID {targetLocalId} present={targetExists}, "
+                        + $"parent local ID {parentLocalId} present={parentExists}, "
+                        + $"{unexpectedIds.Count} unexpected and "
+                        + $"{missingUnrelatedIds.Count} unrelated missing GameObject ID(s)",
+                        applyException);
+                }
+                catch (Exception exception)
+                {
+                    return PrefabStateUncertain(
+                        "Remove GameObject",
+                        assetPath,
+                        $"reconciliation failed: {exception.Message}",
+                        applyException);
+                }
+            }
+            finally
+            {
+                ClosePrefabMutationScene(previewScene);
+            }
         }
 #endif
     }
