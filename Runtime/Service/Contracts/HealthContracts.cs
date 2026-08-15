@@ -61,6 +61,10 @@ namespace Zh1Zh1.CSharpConsole.Service
         public string unityVersion = "";
         public bool isCompiling;
         public bool compileFailed;
+        public bool isUpdating;
+        public bool isPlaying;
+        public int mainThreadHeartbeatAgeMs;
+        public string scriptChangesWhilePlaying = "";
         public RefreshOperationState operation = new RefreshOperationState();
     }
 
