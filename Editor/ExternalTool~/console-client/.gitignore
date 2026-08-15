@@ -2,4 +2,3 @@ site-packages/
 .cache/
 __pycache__/
 *.pyc
-tests/
