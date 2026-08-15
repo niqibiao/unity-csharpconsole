@@ -1,0 +1,32 @@
+name: Checks
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run the Unity-free static checks
+        run: python -B .github/scripts/check_package.py
+
+      - name: Install the REPL dependencies
+        run: pip install -r "Editor/ExternalTool~/console-client/requirements-repl.txt"
+
+      - name: Run the shared core suite
+        run: python -B -m unittest discover -s "Editor/ExternalTool~/console-client/tests/csharpconsole_core" -p "test_*.py" -v
+
+      - name: Run the REPL suite
+        run: python -B -m unittest discover -s "Editor/ExternalTool~/console-client/tests/tests_repl" -p "test_*.py" -v
