@@ -7,6 +7,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Unity](https://img.shields.io/badge/Unity-2022-black.svg?logo=unity)](https://unity.com/)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-blueviolet.svg?logo=anthropic)](https://claude.ai/code)
+[![Codex](https://img.shields.io/badge/Codex-black.svg?logo=openai&logoColor=white)](https://github.com/openai/codex)
 [![UPM](https://img.shields.io/badge/UPM-Package-brightgreen.svg)](package.json)
 
 在 Unity Editor 和 Runtime 中即时执行 C# 代码 — 无需等待编译，无需样板代码，<br/>
