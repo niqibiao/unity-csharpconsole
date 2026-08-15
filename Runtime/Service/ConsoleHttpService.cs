@@ -44,6 +44,12 @@ namespace Zh1Zh1.CSharpConsole.Service
 #if UNITY_EDITOR
         private static CompletionEndpointHandler s_CompletionEndpointHandler;
 #endif
+        private static long s_MainThreadHeartbeatUtcTicks;
+        private static volatile bool s_CachedIsUpdating;
+        private static volatile bool s_CachedIsPlaying;
+#if UNITY_EDITOR
+        private static volatile int s_CachedScriptChangesWhilePlaying;
+#endif
 
         public static int Port { get; private set; }
 
@@ -67,6 +73,7 @@ namespace Zh1Zh1.CSharpConsole.Service
         {
 #if UNITY_EDITOR
             MainThreadRequestRunner.InitializeEditor();
+            RecordMainThreadHeartbeat();
             s_EditorREPLCompilerGenerator = editorCompilerGenerator ?? throw new ArgumentNullException(nameof(editorCompilerGenerator));
             s_EditorREPLExecutorGenerator = editorExecutorGenerator ?? throw new ArgumentNullException(nameof(editorExecutorGenerator));
             s_RuntimeREPLCompilerGenerator = runtimeCompilerGenerator ?? throw new ArgumentNullException(nameof(runtimeCompilerGenerator));
@@ -82,6 +89,8 @@ namespace Zh1Zh1.CSharpConsole.Service
             throw new InvalidOperationException("InitializeForRuntime can only be called in the Unity Runtime.");
 #else
             MainThreadRequestRunner.InitializeRuntime();
+            RecordMainThreadHeartbeat();
+            EnsureRuntimeHealthHeartbeat();
             s_RuntimeREPLExecutorGenerator = runtimeExecutorGenerator ?? throw new ArgumentNullException(nameof(runtimeExecutorGenerator));
             InitializeInternal();
 #endif
@@ -110,7 +119,13 @@ namespace Zh1Zh1.CSharpConsole.Service
             s_Initialized = true;
 #if UNITY_EDITOR
             var state = GetRefreshStateSnapshot();
-            if (state.PhaseValue == RefreshPhase.Reloading || state.PhaseValue == RefreshPhase.Compiling || state.PhaseValue == RefreshPhase.RefreshingAssets || state.PhaseValue == RefreshPhase.Requested)
+            // Only a persisted Reloading phase is safely terminal here: reaching
+            // initialization means that reload completed even when the
+            // afterAssemblyReload event was missed. Requested/RefreshingAssets/
+            // Compiling may still have play-mode-deferred compilation pending
+            // (this method reruns on every play mode transition), so they keep
+            // their OnEditorUpdate exits instead of being forced ready.
+            if (state.PhaseValue == RefreshPhase.Reloading)
             {
                 state.reloadObserved = true;
                 SetPhase(state, RefreshPhase.Ready);
@@ -523,11 +538,16 @@ namespace Zh1Zh1.CSharpConsole.Service
                 isEditor = true,
                 isCompiling = s_CachedIsCompiling,
                 compileFailed = s_CachedCompileFailed,
+                scriptChangesWhilePlaying = DescribeScriptChangesWhilePlaying(s_CachedScriptChangesWhilePlaying),
 #else
                 isEditor = false,
                 isCompiling = false,
                 compileFailed = false,
+                scriptChangesWhilePlaying = "",
 #endif
+                isUpdating = s_CachedIsUpdating,
+                isPlaying = s_CachedIsPlaying,
+                mainThreadHeartbeatAgeMs = GetMainThreadHeartbeatAgeMs(),
                 port = Port,
                 refreshing = IsActiveRefreshPhase(state.PhaseValue),
                 generation = Mathf.Max(0, state.generation),
@@ -573,13 +593,65 @@ namespace Zh1Zh1.CSharpConsole.Service
             }
         }
 
+        private static void RecordMainThreadHeartbeat()
+        {
+            Interlocked.Exchange(ref s_MainThreadHeartbeatUtcTicks, DateTime.UtcNow.Ticks);
+#if UNITY_EDITOR
+            s_CachedIsUpdating = EditorApplication.isUpdating;
+            s_CachedIsPlaying = EditorApplication.isPlaying;
+            s_CachedScriptChangesWhilePlaying = EditorPrefs.GetInt(SCRIPT_CHANGES_WHILE_PLAYING_PREF_KEY, 0);
+#else
+            s_CachedIsUpdating = false;
+            s_CachedIsPlaying = Application.isPlaying;
+#endif
+        }
+
+        private static int GetMainThreadHeartbeatAgeMs()
+        {
+            var lastTicks = Interlocked.Read(ref s_MainThreadHeartbeatUtcTicks);
+            if (lastTicks <= 0)
+            {
+                return -1;
+            }
+
+            var elapsedTicks = Math.Max(0, DateTime.UtcNow.Ticks - lastTicks);
+            var elapsedMs = elapsedTicks / TimeSpan.TicksPerMillisecond;
+            return elapsedMs > int.MaxValue ? int.MaxValue : (int)elapsedMs;
+        }
+
+#if !UNITY_EDITOR
+        private sealed class RuntimeHealthHeartbeat : MonoBehaviour
+        {
+            private void Update()
+            {
+                RecordMainThreadHeartbeat();
+            }
+        }
+
+        private static void EnsureRuntimeHealthHeartbeat()
+        {
+            var heartbeatObject = new GameObject("CSharpConsoleHealthHeartbeat")
+            {
+                hideFlags = HideFlags.HideAndDontSave
+            };
+            UnityEngine.Object.DontDestroyOnLoad(heartbeatObject);
+            heartbeatObject.AddComponent<RuntimeHealthHeartbeat>();
+        }
+#endif
+
 #if UNITY_EDITOR
         private const string REFRESH_ACTION = "refresh_and_compile";
         private const double REFRESH_GRACE_SECONDS = 2.0;
         private const double REFRESH_TRIGGER_TIMEOUT_SECONDS = 10.0;
+        private const int COMPILING_QUIET_UPDATES = 3;
+        // EditorPrefs key backing Preferences > General > Script Changes While Playing
+        // (UnityEditor.ScriptChangesDuringPlayOptions).
+        private const string SCRIPT_CHANGES_WHILE_PLAYING_PREF_KEY = "ScriptCompilationDuringPlay";
         private static RefreshOperationState s_CachedRefreshState;
         private static long s_RefreshRequestedAtTicks;
         private static double s_RefreshTriggeredAtEditorTime;
+        private static double s_CompilingQuietSinceEditorTime;
+        private static int s_CompilingQuietUpdates;
         private static string[] s_PendingChangedFiles;
 
         // Cached on the main thread so /health (background HTTP thread) can read
@@ -590,8 +662,20 @@ namespace Zh1Zh1.CSharpConsole.Service
 
         private static void RefreshCompilationFlagCache()
         {
+            RecordMainThreadHeartbeat();
             s_CachedIsCompiling = EditorApplication.isCompiling;
             s_CachedCompileFailed = EditorUtility.scriptCompilationFailed;
+        }
+
+        private static string DescribeScriptChangesWhilePlaying(int value)
+        {
+            return value switch
+            {
+                0 => "recompile_and_continue",
+                1 => "recompile_after_finished",
+                2 => "stop_and_recompile",
+                _ => ""
+            };
         }
 
         private static string GetRefreshStatePath()
@@ -1021,9 +1105,6 @@ namespace Zh1Zh1.CSharpConsole.Service
                     state.message = "Script compilation finished, waiting for reload or idle";
                 }
             });
-
-            EditorApplication.delayCall -= FinalizeRefreshAfterCompile;
-            EditorApplication.delayCall += FinalizeRefreshAfterCompile;
         }
 
         private static void OnBeforeAssemblyReload()
@@ -1063,6 +1144,7 @@ namespace Zh1Zh1.CSharpConsole.Service
 
             if (EditorApplication.isCompiling)
             {
+                s_CompilingQuietUpdates = 0;
                 if (state.PhaseValue != RefreshPhase.Compiling)
                 {
                     UpdateRefreshState(s =>
@@ -1076,6 +1158,26 @@ namespace Zh1Zh1.CSharpConsole.Service
 
             if (EditorApplication.isUpdating)
             {
+                s_CompilingQuietUpdates = 0;
+                return;
+            }
+
+            // Play mode defers requested script compilation (per the Script
+            // Changes While Playing preference), so the two timeout exits below
+            // would report ready while a compile is still pending. Slide their
+            // baselines until the editor is back in edit mode; that also restarts
+            // the timers cleanly at the moment the deferral lifts.
+            if (state.compileRequested
+                && EditorApplication.isPlayingOrWillChangePlaymode
+                && (state.PhaseValue == RefreshPhase.Requested || state.PhaseValue == RefreshPhase.RefreshingAssets))
+            {
+                s_RefreshRequestedAtTicks = DateTimeOffset.UtcNow.Ticks;
+                s_RefreshTriggeredAtEditorTime = EditorApplication.timeSinceStartup;
+                const string deferringMessage = "Play mode is deferring script compilation; waiting for edit mode";
+                if (!string.Equals(state.message, deferringMessage, StringComparison.Ordinal))
+                {
+                    UpdateRefreshState(s => s.message = deferringMessage);
+                }
                 return;
             }
 
@@ -1106,23 +1208,28 @@ namespace Zh1Zh1.CSharpConsole.Service
                     return;
 
                 MarkRefreshReady("Refresh completed without observable compilation work");
-            }
-        }
-
-        private static void FinalizeRefreshAfterCompile()
-        {
-            var state = GetRefreshStateSnapshot();
-            if (state.PhaseValue != RefreshPhase.Compiling)
-            {
                 return;
             }
 
-            if (EditorApplication.isCompiling || EditorApplication.isUpdating)
+            // Compiling exits on the observed level, not on the edge event:
+            // OnCompilationFinished can fire while the editor still reports busy,
+            // and its one-shot continuation would then be lost. Require a short
+            // quiet window so a ready blip cannot precede an imminent assembly
+            // reload.
+            if (state.PhaseValue == RefreshPhase.Compiling)
             {
-                return;
-            }
+                if (s_CompilingQuietUpdates == 0)
+                {
+                    s_CompilingQuietSinceEditorTime = EditorApplication.timeSinceStartup;
+                }
 
-            MarkRefreshReady("Script compilation finished without assembly reload");
+                s_CompilingQuietUpdates++;
+                if (s_CompilingQuietUpdates >= COMPILING_QUIET_UPDATES
+                    && EditorApplication.timeSinceStartup - s_CompilingQuietSinceEditorTime >= REFRESH_GRACE_SECONDS)
+                {
+                    MarkRefreshReady("Script compilation finished without assembly reload");
+                }
+            }
         }
 #endif
 
