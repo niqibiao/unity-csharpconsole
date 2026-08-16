@@ -136,6 +136,11 @@ Runtime 执行仅依赖 **HybridCLR** 的 `Assembly.Load` 能力实现 IL2CPP �
 
 端口被占用时自动递增到下一个可用端口。
 
+> [!WARNING]
+> 服务默认监听所有网卡且不做鉴权，这是面向可信局域网的设计：支持连到同事机器上的
+> Editor 或真机构建是功能的一部分。任何能访问该端口的人都可以在你的 Editor 里执行
+> C# —— 请勿把端口暴露到不可信网络。
+
 ## ⌨ REPL 使用
 
 ### 启动
@@ -207,7 +212,7 @@ Tab 补全支持命令名和参数名。
 
 ## 📋 内置 Action
 
-13 个命名空间，56 个内置命令，覆盖编辑器控制、场景操作、资产管理等常见场景。
+14 个命名空间，61 个内置命令，覆盖编辑器控制、场景操作、资产管理等常见场景。
 
 | 命名空间 | Action | 说明 |
 |----------|--------|------|
@@ -239,6 +244,9 @@ Tab 补全支持命令名和参数名。
 | **material** | `create` | 使用指定 Shader 创建新材质资产 |
 | | `get` | 从资产或 Renderer 获取材质属性 |
 | | `assign` | 将材质分配给 Renderer 组件 |
+| **scriptableobject** | `create` | 按类型创建 ScriptableObject 资产 |
+| | `get` | 获取 ScriptableObject 资产的序列化字段数据 |
+| | `modify` | 修改 ScriptableObject 资产的序列化字段 |
 | **screenshot** | `scene_view` | 截取 Scene View 到图片文件 |
 | | `game_view` | 截取 Game View 到图片文件 |
 | **profiler** | `start` | 开始 Profiler 录制（可选深度分析） |
@@ -250,6 +258,8 @@ Tab 补全支持命令名和参数名。
 | | `playmode.exit` | 退出播放模式 |
 | | `console.clear` | 清空编辑器控制台 |
 | | `console.mark` | 向编辑器日志写入可搜索标记并返回日志文件路径 |
+| | `test.run` | 启动 Unity Test Framework 测试（EditMode 或 PlayMode） |
+| | `test.status` | 获取最近一次测试运行的状态与结果 |
 | **project** | `scene.list` | 列出项目中所有场景 |
 | | `scene.open` | 通过路径打开场景 |
 | | `scene.save` | 保存当前场景 |
@@ -271,6 +281,8 @@ Tab 补全支持命令名和参数名。
 > 大部分 Action 仅限 Editor。`session.*` 和 `command.*` 在 Runtime 构建中同样可用。
 >
 > `prefab/asset_*` 直接编辑磁盘上的资产，无需打开场景。其子物体通过 `asset_hierarchy` 返回的身份选择器（`gid:<guid>:<localFileId>`）定位，而非名称路径。
+>
+> `editor/test.*` 需要消费项目安装 `com.unity.test-framework`；未安装时命令仍在注册表中，但会返回说明性错误。
 
 ## 🔌 扩展命令
 

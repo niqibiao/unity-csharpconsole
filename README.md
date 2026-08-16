@@ -136,6 +136,12 @@ Runtime execution only depends on **HybridCLR**'s `Assembly.Load` capability for
 
 If a port is occupied, the service automatically advances to the next available one.
 
+> [!WARNING]
+> The service binds all network interfaces and has no authentication, by design: it
+> targets trusted LANs where reaching a teammate's Editor or a device build is a
+> feature. Anyone who can reach the port can execute C# in your Editor — do not
+> expose it to untrusted networks.
+
 ## ⌨ REPL Usage
 
 ### Starting the REPL
@@ -207,7 +213,7 @@ Tab completion works for both command names and argument names.
 
 ## 📋 Built-in Actions
 
-56 built-in commands across 13 namespaces, covering editor control, scene manipulation, asset management, and more.
+61 built-in commands across 14 namespaces, covering editor control, scene manipulation, asset management, and more.
 
 | Namespace | Action | Description |
 |-----------|--------|-------------|
@@ -239,6 +245,9 @@ Tab completion works for both command names and argument names.
 | **material** | `create` | Create a new material asset with a specified shader |
 | | `get` | Get material properties from an asset or a Renderer |
 | | `assign` | Assign a material to a Renderer component |
+| **scriptableobject** | `create` | Create a ScriptableObject asset of a given type |
+| | `get` | Get serialized field data of a ScriptableObject asset |
+| | `modify` | Modify serialized fields of a ScriptableObject asset |
 | **screenshot** | `scene_view` | Capture the Scene View to an image file |
 | | `game_view` | Capture the Game View to an image file |
 | **profiler** | `start` | Start Profiler recording (optional deep profiling) |
@@ -250,6 +259,8 @@ Tab completion works for both command names and argument names.
 | | `playmode.exit` | Exit play mode |
 | | `console.clear` | Clear the editor console |
 | | `console.mark` | Write a searchable marker into the editor log and return the log file path |
+| | `test.run` | Start a Unity Test Framework run (EditMode or PlayMode) |
+| | `test.status` | Get the state and results of the latest test run |
 | **project** | `scene.list` | List all scenes in the project |
 | | `scene.open` | Open a scene by path |
 | | `scene.save` | Save the current scene |
@@ -271,6 +282,8 @@ Tab completion works for both command names and argument names.
 > Most actions are editor-only. `session.*` and `command.*` are available on Runtime builds as well.
 >
 > `prefab/asset_*` edit the asset on disk without opening a scene. They address children by the identity selector returned from `asset_hierarchy` (`gid:<guid>:<localFileId>`), not by name path.
+>
+> `editor/test.*` require `com.unity.test-framework` in the consuming project; without it they stay registered but return an explanatory error.
 
 ## 🔌 Extending Commands
 
