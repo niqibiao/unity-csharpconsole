@@ -293,7 +293,10 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 
         private static string GetStateFilePath()
         {
-            return Path.GetFullPath(Path.Combine(Application.dataPath, "..", "Temp", "CSharpConsole", "test_run_state.json"));
+            // Library, not Temp: the editor recreates Temp on every start, which
+            // would erase the record needed to report an interrupted run as
+            // aborted after a restart.
+            return Path.GetFullPath(Path.Combine(Application.dataPath, "..", "Library", "CSharpConsole", "test_run_state.json"));
         }
 
         private static TestRunState LoadState()
