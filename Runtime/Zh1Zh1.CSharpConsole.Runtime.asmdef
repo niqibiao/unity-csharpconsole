@@ -1,7 +1,10 @@
 {
     "name": "Zh1Zh1.CSharpConsole.Runtime",
     "rootNamespace": "Zh1Zh1.CSharpConsole",
-    "references": [],
+    "references": [
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner"
+    ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
@@ -11,6 +14,12 @@
     "defineConstraints": [
         "DEVELOPMENT_BUILD || UNITY_EDITOR"
     ],
-    "versionDefines": [],
+    "versionDefines": [
+        {
+            "name": "com.unity.test-framework",
+            "expression": "1.0",
+            "define": "ZH1ZH1_CSC_TEST_FRAMEWORK"
+        }
+    ],
     "noEngineReferences": false
 }

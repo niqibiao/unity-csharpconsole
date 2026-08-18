@@ -160,6 +160,8 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
             ScreenshotCommandActions.Register(router);
             ProfilerCommandActions.Register(router);
             AssetCommandActions.Register(router);
+            ScriptableObjectCommandActions.Register(router);
+            TestRunnerCommandActions.Register(router);
         }
 
         private void RegisterAttributedHandlersFromLoadedAssemblies()
