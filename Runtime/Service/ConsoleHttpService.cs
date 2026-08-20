@@ -41,6 +41,7 @@ namespace Zh1Zh1.CSharpConsole.Service
         private static HealthEndpointHandler s_HealthEndpointHandler;
         private static CommandEndpointHandler s_CommandEndpointHandler;
         private static BatchEndpointHandler s_BatchEndpointHandler;
+        private static DownloadEndpointHandler s_DownloadEndpointHandler;
 #if UNITY_EDITOR
         private static CompletionEndpointHandler s_CompletionEndpointHandler;
 #endif
@@ -64,6 +65,7 @@ namespace Zh1Zh1.CSharpConsole.Service
             s_HealthEndpointHandler ??= new HealthEndpointHandler(s_Dependencies);
             s_CommandEndpointHandler ??= new CommandEndpointHandler(s_Dependencies);
             s_BatchEndpointHandler ??= new BatchEndpointHandler(s_Dependencies);
+            s_DownloadEndpointHandler ??= new DownloadEndpointHandler(s_Dependencies);
 #if UNITY_EDITOR
             s_CompletionEndpointHandler ??= new CompletionEndpointHandler(s_Dependencies);
 #endif
@@ -237,16 +239,19 @@ namespace Zh1Zh1.CSharpConsole.Service
                     continue;
                 }
 
-                if (context.Request.HttpMethod != "POST")
+                var rawContentType = context.Request.ContentType;
+                var contentType = rawContentType?.Split(';')[0].Trim().ToLowerInvariant();
+                var path = context.Request.Url.AbsolutePath.ToLowerInvariant();
+
+                // Every route takes a POST body except the download, which is a
+                // plain GET so that Range requests work as they normally would.
+                var isDownloadGet = context.Request.HttpMethod == "GET" && path.EndsWith("/download");
+                if (context.Request.HttpMethod != "POST" && !isDownloadGet)
                 {
                     context.Response.StatusCode = 405;
                     context.Response.Close();
                     continue;
                 }
-
-                var rawContentType = context.Request.ContentType;
-                var contentType = rawContentType?.Split(';')[0].Trim().ToLowerInvariant();
-                var path = context.Request.Url.AbsolutePath.ToLowerInvariant();
 
                 try
                 {
@@ -270,6 +275,14 @@ namespace Zh1Zh1.CSharpConsole.Service
 
         private static async Task DispatchRequestByContentType(HttpListenerContext context, string contentType, string path)
         {
+            // A download is a GET with no body, so it carries no content type
+            // and has to be routed ahead of the content-type switch.
+            if (path.EndsWith("/download"))
+            {
+                await s_DownloadEndpointHandler.Handle(context);
+                return;
+            }
+
             switch (contentType)
             {
                 case "application/json":

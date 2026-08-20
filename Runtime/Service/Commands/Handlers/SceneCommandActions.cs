@@ -1,24 +1,21 @@
 using System;
 using System.Collections.Generic;
-#if UNITY_EDITOR
 using UnityEngine;
 using UnityEngine.SceneManagement;
-#endif
 using Zh1Zh1.CSharpConsole.Service.Commands.Core;
 using Zh1Zh1.CSharpConsole.Service.Commands.Routing;
 
 namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 {
+    // Reading the loaded scene tree is plain UnityEngine work, so this reports
+    // the live hierarchy of a player just as well as the editor's.
     internal static class SceneCommandActions
     {
         internal static void Register(CommandRouter router)
         {
-#if UNITY_EDITOR
             router.RegisterAttributedHandlers(typeof(SceneCommandActions));
-#endif
         }
 
-#if UNITY_EDITOR
         [Serializable]
         private sealed class HierarchyNode
         {
@@ -42,7 +39,6 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction(
             "scene",
             "hierarchy",
-            editorOnly: true,
             summary: "Get the full scene hierarchy tree",
             resultType: typeof(HierarchyResult))]
         private static CommandResponse Hierarchy(
@@ -118,6 +114,5 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 
             return node;
         }
-#endif
     }
 }

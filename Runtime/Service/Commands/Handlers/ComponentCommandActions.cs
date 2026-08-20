@@ -1,24 +1,27 @@
 using System;
 using System.Collections.Generic;
+using UnityEngine;
 #if UNITY_EDITOR
 using UnityEditor;
-using UnityEngine;
 #endif
 using Zh1Zh1.CSharpConsole.Service.Commands.Core;
 using Zh1Zh1.CSharpConsole.Service.Commands.Routing;
 
 namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 {
+    // The editor reads and writes components through SerializedObject, which
+    // reports Unity's serialized names such as m_LocalPosition. A player has no
+    // SerializedObject, so it reflects over fields instead, and that only agrees
+    // with the editor for components the project declares -- see
+    // CommandHelpers.IsProjectDeclaredComponent. Built-in components are refused
+    // there rather than reported in a second, incompatible shape.
     internal static class ComponentCommandActions
     {
         internal static void Register(CommandRouter router)
         {
-#if UNITY_EDITOR
             router.RegisterAttributedHandlers(typeof(ComponentCommandActions));
-#endif
         }
 
-#if UNITY_EDITOR
         // PropertyInfo is shared via CommandHelpers.PropertyInfo
 
         // ── add ──
@@ -34,7 +37,6 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction(
             "component",
             "add",
-            editorOnly: true,
             summary: "Add a component to a GameObject",
             resultType: typeof(AddResult))]
         [CommandRule(
@@ -58,7 +60,11 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     var type = CommandHelpers.ResolveType(typeName, out var typeError);
                     if (type == null) return (error: typeError, result: (AddResult)null);
 
+#if UNITY_EDITOR
                     var comp = ObjectFactory.AddComponent(go, type);
+#else
+                    var comp = go.AddComponent(type);
+#endif
                     if (comp == null)
                         return (error: $"Failed to add component '{typeName}' to '{go.name}'", result: (AddResult)null);
 
@@ -86,7 +92,6 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction(
             "component",
             "remove",
-            editorOnly: true,
             summary: "Remove a component from a GameObject",
             resultType: typeof(RemoveResult))]
         [CommandRule(
@@ -118,7 +123,11 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     if (index < 0 || index >= comps.Length)
                         return (error: $"Component index {index} is out of range (0..{comps.Length - 1}) for type '{typeName}' on '{go.name}'", result: (RemoveResult)null);
 
+#if UNITY_EDITOR
                     Undo.DestroyObjectImmediate(comps[index]);
+#else
+                    UnityEngine.Object.DestroyImmediate(comps[index]);
+#endif
 
                     return (error: (string)null, result: new RemoveResult
                     {
@@ -145,7 +154,6 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction(
             "component",
             "get",
-            editorOnly: true,
             summary: "Get serialized field data of a component",
             resultType: typeof(GetResult))]
         [CommandRule(
@@ -178,10 +186,12 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                         return (error: $"Component index {index} is out of range (0..{comps.Length - 1}) for type '{typeName}' on '{go.name}'", result: (GetResult)null);
 
                     var comp = comps[index];
-                    var so = new SerializedObject(comp);
                     var props = new List<CommandHelpers.PropertyInfo>();
-                    var iter = so.GetIterator();
                     const int maxProperties = 200;
+
+#if UNITY_EDITOR
+                    var so = new SerializedObject(comp);
+                    var iter = so.GetIterator();
 
                     if (iter.NextVisible(true))
                     {
@@ -196,6 +206,25 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                             });
                         } while (iter.NextVisible(false));
                     }
+#else
+                    if (!CommandHelpers.IsProjectDeclaredComponent(comp))
+                    {
+                        return (
+                            error: $"'{type.Name}' is a built-in component; a player can only report fields of components the project declares",
+                            result: (GetResult)null);
+                    }
+
+                    foreach (var field in CommandHelpers.GetSerializableFields(comp.GetType()))
+                    {
+                        if (props.Count >= maxProperties) break;
+                        props.Add(new CommandHelpers.PropertyInfo
+                        {
+                            name = field.Name,
+                            type = field.FieldType.Name,
+                            value = CommandHelpers.FieldValueToString(field.GetValue(comp))
+                        });
+                    }
+#endif
 
                     return (error: (string)null, result: new GetResult
                     {
@@ -224,7 +253,6 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction(
             "component",
             "modify",
-            editorOnly: true,
             summary: "Modify serialized fields of a component",
             resultType: typeof(ModifyResult))]
         [CommandRule(
@@ -261,9 +289,10 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                         return (error: $"Component index {index} is out of range (0..{comps.Length - 1}) for type '{typeName}' on '{go.name}'", result: (ModifyResult)null);
 
                     var comp = comps[index];
-                    var so = new SerializedObject(comp);
-
                     var modifiedFields = new List<string>();
+
+#if UNITY_EDITOR
+                    var so = new SerializedObject(comp);
 
                     foreach (var field in fields)
                     {
@@ -278,6 +307,32 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     }
 
                     so.ApplyModifiedProperties();
+#else
+                    if (!CommandHelpers.IsProjectDeclaredComponent(comp))
+                    {
+                        return (
+                            error: $"'{type.Name}' is a built-in component; a player can only modify fields of components the project declares",
+                            result: (ModifyResult)null);
+                    }
+
+                    var reflected = CommandHelpers.GetSerializableFields(comp.GetType());
+                    foreach (var field in fields)
+                    {
+                        if (string.IsNullOrEmpty(field.name)) continue;
+
+                        foreach (var target in reflected)
+                        {
+                            if (!string.Equals(target.Name, field.name, StringComparison.Ordinal)) continue;
+
+                            if (CommandHelpers.TrySetFieldValue(target, comp, field.value))
+                            {
+                                modifiedFields.Add(field.name);
+                            }
+
+                            break;
+                        }
+                    }
+#endif
 
                     return (error: (string)null, result: new ModifyResult
                     {
@@ -291,6 +346,5 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         }
 
         // SerializedProperty helpers moved to CommandHelpers.SerializedPropertyToString / TrySetSerializedProperty
-#endif
     }
 }

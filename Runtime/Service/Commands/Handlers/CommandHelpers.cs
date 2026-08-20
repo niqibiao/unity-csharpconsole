@@ -1,18 +1,19 @@
 using System;
 using System.Collections.Generic;
-#if UNITY_EDITOR
-using UnityEditor;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+#if UNITY_EDITOR
+using UnityEditor;
 #endif
 using Zh1Zh1.CSharpConsole.Service.Commands.Core;
 using Zh1Zh1.CSharpConsole.Service.Commands.Routing;
 
 namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 {
+    // Most helpers here are plain UnityEngine work and are shared by the editor
+    // and the player. Only the members that reach into UnityEditor are gated.
     public static class CommandHelpers
     {
-#if UNITY_EDITOR
         // Caller is already on the main thread via the framework's runOnMainThread default.
         internal static CommandResponse RunCommand<TResult>(
             Func<(string error, TResult result)> execute,
@@ -33,7 +34,11 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 
             if (instanceId != 0)
             {
+#if UNITY_EDITOR
                 var obj = EditorUtility.InstanceIDToObject(instanceId) as GameObject;
+#else
+                var obj = Resources.InstanceIDToObject(instanceId) as GameObject;
+#endif
                 if (obj == null)
                 {
                     error = $"No GameObject found with instanceId {instanceId}";
@@ -215,6 +220,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             }
         }
 
+#if UNITY_EDITOR
         internal static void ImportAssetIfUnderAssets(string filePath)
         {
             if (!string.IsNullOrEmpty(filePath) &&
@@ -224,6 +230,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 AssetDatabase.ImportAsset(filePath);
             }
         }
+#endif
 
         [Serializable]
         internal sealed class FieldPair
@@ -235,6 +242,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 
         // ── Prefab asset helpers ──
 
+#if UNITY_EDITOR
         internal static GameObject LoadPrefabAsset(string assetPath, out string error)
         {
             error = null;
@@ -252,6 +260,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 
             return prefab;
         }
+#endif
 
         // ── Shared SerializedProperty helpers ──
 
@@ -263,6 +272,186 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public string value = "";
         }
 
+        // ── Runtime field reflection ──
+        //
+        // A player has no SerializedObject, so component state is read and
+        // written through reflection instead. This is restricted to components
+        // the project itself declares: their serialized state really is their
+        // fields, so reflection and SerializedObject agree on what exists. The
+        // built-in types keep their state in native-backed properties, whose
+        // getters can also have side effects (reading Renderer.material
+        // instantiates a copy), so they are refused rather than guessed at.
+        internal static bool IsProjectDeclaredComponent(Component component)
+        {
+            return component is MonoBehaviour;
+        }
+
+        // Mirrors Unity's serialization rule: public fields unless opted out,
+        // and non-public fields that opted in with [SerializeField].
+        internal static System.Reflection.FieldInfo[] GetSerializableFields(Type componentType)
+        {
+            var fields = new List<System.Reflection.FieldInfo>();
+            for (var t = componentType; t != null && t != typeof(MonoBehaviour); t = t.BaseType)
+            {
+                var declared = t.GetFields(
+                    System.Reflection.BindingFlags.Instance |
+                    System.Reflection.BindingFlags.Public |
+                    System.Reflection.BindingFlags.NonPublic |
+                    System.Reflection.BindingFlags.DeclaredOnly);
+
+                foreach (var field in declared)
+                {
+                    if (field.IsNotSerialized)
+                    {
+                        continue;
+                    }
+
+                    var optedIn = Attribute.IsDefined(field, typeof(SerializeField));
+                    if (field.IsPublic || optedIn)
+                    {
+                        fields.Add(field);
+                    }
+                }
+            }
+
+            return fields.ToArray();
+        }
+
+        internal static string FieldValueToString(object value)
+        {
+            switch (value)
+            {
+                case null:
+                    return "";
+                case float f:
+                    return f.ToString("R");
+                case double d:
+                    return d.ToString("R");
+                case Vector2 v2:
+                    return $"{v2.x},{v2.y}";
+                case Vector3 v3:
+                    return $"{v3.x},{v3.y},{v3.z}";
+                case Vector4 v4:
+                    return $"{v4.x},{v4.y},{v4.z},{v4.w}";
+                case Quaternion q:
+                    return $"{q.x},{q.y},{q.z},{q.w}";
+                case Color c:
+                    return $"{c.r},{c.g},{c.b},{c.a}";
+                case UnityEngine.Object o:
+                    return o == null ? "" : o.name;
+                default:
+                    return value.ToString();
+            }
+        }
+
+        internal static bool TrySetFieldValue(System.Reflection.FieldInfo field, object target, string rawValue)
+        {
+            try
+            {
+                var type = field.FieldType;
+
+                if (type == typeof(string))
+                {
+                    field.SetValue(target, rawValue ?? "");
+                    return true;
+                }
+
+                if (type.IsEnum)
+                {
+                    field.SetValue(target, Enum.Parse(type, rawValue, true));
+                    return true;
+                }
+
+                if (type == typeof(bool))
+                {
+                    field.SetValue(target, bool.Parse(rawValue));
+                    return true;
+                }
+
+                if (type == typeof(Vector2) || type == typeof(Vector3) ||
+                    type == typeof(Vector4) || type == typeof(Quaternion) || type == typeof(Color))
+                {
+                    if (!TryParseFloats(rawValue, out var parts))
+                    {
+                        return false;
+                    }
+
+                    if (type == typeof(Vector2) && parts.Length >= 2)
+                    {
+                        field.SetValue(target, new Vector2(parts[0], parts[1]));
+                        return true;
+                    }
+
+                    if (type == typeof(Vector3) && parts.Length >= 3)
+                    {
+                        field.SetValue(target, new Vector3(parts[0], parts[1], parts[2]));
+                        return true;
+                    }
+
+                    if (type == typeof(Vector4) && parts.Length >= 4)
+                    {
+                        field.SetValue(target, new Vector4(parts[0], parts[1], parts[2], parts[3]));
+                        return true;
+                    }
+
+                    if (type == typeof(Quaternion) && parts.Length >= 4)
+                    {
+                        field.SetValue(target, new Quaternion(parts[0], parts[1], parts[2], parts[3]));
+                        return true;
+                    }
+
+                    if (type == typeof(Color) && parts.Length >= 4)
+                    {
+                        field.SetValue(target, new Color(parts[0], parts[1], parts[2], parts[3]));
+                        return true;
+                    }
+
+                    return false;
+                }
+
+                // Numeric types share Convert's parsing; anything left over
+                // (object references, collections) is refused rather than
+                // half-applied.
+                if (type.IsPrimitive || type == typeof(decimal))
+                {
+                    field.SetValue(target, Convert.ChangeType(rawValue, type, System.Globalization.CultureInfo.InvariantCulture));
+                    return true;
+                }
+
+                return false;
+            }
+            catch
+            {
+                // A single unparsable field is reported as not modified rather
+                // than failing the whole command.
+                return false;
+            }
+        }
+
+        private static bool TryParseFloats(string raw, out float[] values)
+        {
+            values = Array.Empty<float>();
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return false;
+            }
+
+            var pieces = raw.Split(',');
+            var parsed = new float[pieces.Length];
+            for (var i = 0; i < pieces.Length; i++)
+            {
+                if (!float.TryParse(pieces[i].Trim(), System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out parsed[i]))
+                {
+                    return false;
+                }
+            }
+
+            values = parsed;
+            return true;
+        }
+
+#if UNITY_EDITOR
         internal static string SerializedPropertyToString(SerializedProperty prop)
         {
             return prop.propertyType switch
@@ -352,6 +541,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 
             return false;
         }
+#endif
 
         internal static byte[] CaptureCamera(Camera cam, int w, int h)
         {
@@ -380,6 +570,5 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 UnityEngine.Object.DestroyImmediate(rt);
             }
         }
-#endif
     }
 }

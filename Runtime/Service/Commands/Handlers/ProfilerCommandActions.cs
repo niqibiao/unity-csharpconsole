@@ -1,24 +1,25 @@
 using System;
 using System.Reflection;
-#if UNITY_EDITOR
 using UnityEngine;
 using UnityEngine.Profiling;
-#endif
 using Zh1Zh1.CSharpConsole.Service.Commands.Core;
 using Zh1Zh1.CSharpConsole.Service.Commands.Routing;
 
 namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 {
+    // Recording is UnityEngine.Profiling, which players support in development
+    // builds, so start/stop/status work on device. Only save needs the editor:
+    // it goes through ProfilerDriver. On device, point start at a logFile and
+    // retrieve the binary log with the download route instead.
     internal static class ProfilerCommandActions
     {
         internal static void Register(CommandRouter router)
         {
-#if UNITY_EDITOR
             router.RegisterAttributedHandlers(typeof(ProfilerCommandActions));
-#endif
         }
 
-#if UNITY_EDITOR
+        // Resolved by name so the player simply gets null members rather than a
+        // missing-assembly reference; every use below is null-guarded.
         private static readonly Type s_ProfilerDriverType = Type.GetType("UnityEditorInternal.ProfilerDriver, UnityEditor");
         private static readonly PropertyInfo s_DeepProfilingProp = s_ProfilerDriverType?.GetProperty("deepProfiling", BindingFlags.Public | BindingFlags.Static);
         private static readonly PropertyInfo s_FirstFrameIndexProp = s_ProfilerDriverType?.GetProperty("firstFrameIndex", BindingFlags.Public | BindingFlags.Static);
@@ -36,11 +37,13 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction(
             "profiler",
             "start",
-            editorOnly: true,
             summary: "Start Profiler recording",
             resultType: typeof(StartResult))]
         private static CommandResponse Start(bool deep = false, string logFile = "")
         {
+            // Deep profiling is an editor toggle; a player reports it as off
+            // rather than claiming a setting it never applied.
+            var deepApplied = deep && s_DeepProfilingProp != null;
             if (s_DeepProfilingProp != null)
             {
                 s_DeepProfilingProp.SetValue(null, deep);
@@ -58,7 +61,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             var result = new StartResult
             {
                 started = Profiler.enabled,
-                deepProfiling = deep,
+                deepProfiling = deepApplied,
                 logFile = Profiler.logFile ?? ""
             };
 
@@ -76,7 +79,6 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction(
             "profiler",
             "stop",
-            editorOnly: true,
             summary: "Stop Profiler recording",
             resultType: typeof(StopResult))]
         private static CommandResponse Stop()
@@ -104,7 +106,6 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction(
             "profiler",
             "status",
-            editorOnly: true,
             summary: "Get current Profiler state",
             resultType: typeof(StatusResult))]
         private static CommandResponse Status()
@@ -164,6 +165,5 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 ? CommandResponseFactory.Ok($"Profiler data saved to '{result.savePath}'", JsonUtility.ToJson(result))
                 : CommandResponseFactory.ValidationError($"Failed to save profiler data to '{savePath}'");
         }
-#endif
     }
 }

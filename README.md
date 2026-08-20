@@ -213,7 +213,7 @@ Tab completion works for both command names and argument names.
 
 ## 📋 Built-in Actions
 
-61 built-in commands across 14 namespaces, covering editor control, scene manipulation, asset management, and more.
+62 built-in commands across 15 namespaces, covering editor control, scene manipulation, asset management, and more.
 
 | Namespace | Action | Description |
 |-----------|--------|-------------|
@@ -278,8 +278,9 @@ Tab completion works for both command names and argument names.
 | | `reset` | Reset a session's compiler and executor |
 | **command** | `list` | List all registered commands (built-in + custom) |
 | | `registry.snapshot` | Get the command registry snapshot |
+| **runtime** | `info` | Report the responding process's device facts and well-known file paths |
 
-> Most actions are editor-only. `session.*` and `command.*` are available on Runtime builds as well.
+> 39 actions need the editor and say so when a player receives them. The other 23 also answer in a player: `runtime/info`, `scene/hierarchy`, `gameobject/*`, `transform/set`, `component/*`, `screenshot/game_view`, `profiler/start|stop|status`, `session/*` and `command/*`. A player has no undo stack, so mutations made there cannot be reversed, and `component/get|modify` only covers components the project declares — built-in components keep their state in native properties rather than serialized fields.
 >
 > `prefab/asset_*` edit the asset on disk without opening a scene. They address children by the identity selector returned from `asset_hierarchy` (`gid:<guid>:<localFileId>`), not by name path.
 >

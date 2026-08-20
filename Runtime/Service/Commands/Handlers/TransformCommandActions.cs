@@ -1,23 +1,23 @@
 using System;
+using UnityEngine;
 #if UNITY_EDITOR
 using UnityEditor;
-using UnityEngine;
 #endif
 using Zh1Zh1.CSharpConsole.Service.Commands.Core;
 using Zh1Zh1.CSharpConsole.Service.Commands.Routing;
 
 namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 {
+    // Setting a transform is plain UnityEngine work. Only the undo record is
+    // editor-side; a player has no undo stack, so the change is not reversible
+    // there.
     internal static class TransformCommandActions
     {
         internal static void Register(CommandRouter router)
         {
-#if UNITY_EDITOR
             router.RegisterAttributedHandlers(typeof(TransformCommandActions));
-#endif
         }
 
-#if UNITY_EDITOR
         [Serializable]
         private sealed class SetResult
         {
@@ -31,7 +31,6 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction(
             "transform",
             "set",
-            editorOnly: true,
             summary: "Set a GameObject's transform values",
             resultType: typeof(SetResult))]
         [CommandRule(CommandRuleKind.ExactlyOneOf, "path", "instanceId")]
@@ -56,7 +55,9 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 
                     var t = go.transform;
 
+#if UNITY_EDITOR
                     Undo.RecordObject(t, "Set Transform");
+#endif
 
                     if (position.HasValue)
                     {
@@ -87,6 +88,5 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 r => $"Set transform for '{r.path}'"
             );
         }
-#endif
     }
 }

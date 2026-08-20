@@ -162,6 +162,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
             AssetCommandActions.Register(router);
             ScriptableObjectCommandActions.Register(router);
             TestRunnerCommandActions.Register(router);
+            RuntimeInfoCommandActions.Register(router);
         }
 
         private void RegisterAttributedHandlersFromLoadedAssemblies()
