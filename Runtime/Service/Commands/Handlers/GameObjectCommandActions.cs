@@ -1,25 +1,26 @@
 using System;
 using System.Collections.Generic;
-#if UNITY_EDITOR
-using UnityEditor;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+#if UNITY_EDITOR
+using UnityEditor;
 #endif
 using Zh1Zh1.CSharpConsole.Service.Commands.Core;
 using Zh1Zh1.CSharpConsole.Service.Commands.Routing;
 
 namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 {
+    // Finding, creating and mutating GameObjects is plain UnityEngine work, so
+    // these run against a live player as well as the editor. The editor also
+    // records undo steps; a player has no undo stack, so changes made there
+    // cannot be reversed.
     internal static class GameObjectCommandActions
     {
         internal static void Register(CommandRouter router)
         {
-#if UNITY_EDITOR
             router.RegisterAttributedHandlers(typeof(GameObjectCommandActions));
-#endif
         }
 
-#if UNITY_EDITOR
         [Serializable]
         private sealed class GameObjectInfo
         {
@@ -60,7 +61,6 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction(
             "gameobject",
             "find",
-            editorOnly: true,
             summary: "Find GameObjects by name, tag, or component type",
             resultType: typeof(FindResult))]
         private static CommandResponse Find(string name = "", string tag = "", string componentType = "")
@@ -160,7 +160,6 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction(
             "gameobject",
             "create",
-            editorOnly: true,
             summary: "Create a new GameObject (empty or primitive)",
             resultType: typeof(CreateResult))]
         private static CommandResponse Create(
@@ -209,7 +208,9 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                         go.transform.SetParent(parent.transform, false);
                     }
 
+#if UNITY_EDITOR
                     Undo.RegisterCreatedObjectUndo(go, "Create GameObject");
+#endif
 
                     return (error: (string)null, result: new CreateResult
                     {
@@ -235,7 +236,6 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction(
             "gameobject",
             "destroy",
-            editorOnly: true,
             summary: "Destroy a GameObject",
             resultType: typeof(DestroyResult))]
         [CommandRule(CommandRuleKind.ExactlyOneOf, "path", "instanceId")]
@@ -253,7 +253,13 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                         name = go.name,
                         destroyed = true
                     };
+#if UNITY_EDITOR
                     Undo.DestroyObjectImmediate(go);
+#else
+                    // No undo stack in a player, and DestroyImmediate keeps the
+                    // command's result honest: the object is gone when it returns.
+                    UnityEngine.Object.DestroyImmediate(go);
+#endif
                     return (error: (string)null, result: r);
                 },
                 r => $"Destroyed '{r.name}'"
@@ -280,7 +286,6 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction(
             "gameobject",
             "get",
-            editorOnly: true,
             summary: "Get detailed info about a GameObject",
             resultType: typeof(GetResult))]
         [CommandRule(CommandRuleKind.ExactlyOneOf, "path", "instanceId")]
@@ -346,7 +351,6 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction(
             "gameobject",
             "modify",
-            editorOnly: true,
             summary: "Modify a GameObject's basic properties",
             resultType: typeof(ModifyResult))]
         [CommandRule(CommandRuleKind.ExactlyOneOf, "path", "instanceId")]
@@ -372,7 +376,9 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     var go = CommandHelpers.ResolveGameObject(path, instanceId, out var error);
                     if (go == null) return (error, result: (ModifyResult)null);
 
+#if UNITY_EDITOR
                     Undo.RecordObject(go, "Modify GameObject");
+#endif
 
                     if (!string.IsNullOrEmpty(name)) go.name = name;
                     if (!string.IsNullOrEmpty(tag)) go.tag = tag;
@@ -404,7 +410,6 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction(
             "gameobject",
             "set_parent",
-            editorOnly: true,
             summary: "Change a GameObject's parent",
             resultType: typeof(SetParentResult))]
         [CommandRule(CommandRuleKind.ExactlyOneOf, "path", "instanceId")]
@@ -436,14 +441,20 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 
                     if (worldPositionStays)
                     {
+#if UNITY_EDITOR
                         Undo.SetTransformParent(child.transform, parentTransform, "Set Parent");
+#else
+                        child.transform.SetParent(parentTransform, true);
+#endif
                     }
                     else
                     {
+#if UNITY_EDITOR
                         // Undo.SetTransformParent always uses worldPositionStays=true internally.
                         // Use RecordObject + SetParent(false) so that both undo and redo correctly
                         // preserve the local transform instead of restoring the world-space result.
                         Undo.RecordObject(child.transform, "Set Parent");
+#endif
                         child.transform.SetParent(parentTransform, false);
                     }
 
@@ -471,7 +482,6 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         [CommandAction(
             "gameobject",
             "duplicate",
-            editorOnly: true,
             summary: "Duplicate a GameObject",
             resultType: typeof(DuplicateResult))]
         [CommandRule(CommandRuleKind.ExactlyOneOf, "path", "instanceId")]
@@ -484,7 +494,9 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     if (source == null) return (error, result: (DuplicateResult)null);
 
                     var copy = UnityEngine.Object.Instantiate(source, source.transform.parent);
+#if UNITY_EDITOR
                     Undo.RegisterCreatedObjectUndo(copy, "Duplicate GameObject");
+#endif
                     copy.name = !string.IsNullOrEmpty(newName) ? newName : source.name;
 
                     return (error: (string)null, result: new DuplicateResult
@@ -497,7 +509,5 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 r => $"Duplicated as '{r.name}'"
             );
         }
-
-#endif
     }
 }

@@ -1,23 +1,23 @@
 using System;
+using UnityEngine;
 #if UNITY_EDITOR
 using UnityEditor;
-using UnityEngine;
 #endif
 using Zh1Zh1.CSharpConsole.Service.Commands.Core;
 using Zh1Zh1.CSharpConsole.Service.Commands.Routing;
 
 namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 {
+    // Game View capture is ScreenCapture, which players support, so a device can
+    // be photographed and the file retrieved with the download route. Scene View
+    // capture stays editor-only: a player has no scene view.
     internal static class ScreenshotCommandActions
     {
         internal static void Register(CommandRouter router)
         {
-#if UNITY_EDITOR
             router.RegisterAttributedHandlers(typeof(ScreenshotCommandActions));
-#endif
         }
 
-#if UNITY_EDITOR
         [Serializable]
         private sealed class ScreenshotResult
         {
@@ -26,6 +26,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public int height;
         }
 
+#if UNITY_EDITOR
         [CommandAction(
             "screenshot",
             "scene_view",
@@ -73,10 +74,11 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             );
         }
 
+#endif
+
         [CommandAction(
             "screenshot",
             "game_view",
-            editorOnly: true,
             summary: "Capture the Game View",
             resultType: typeof(ScreenshotResult))]
         private static CommandResponse CaptureGameView(
@@ -90,7 +92,15 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
 
             var captureSuperSize = superSize > 0 ? superSize : 1;
 
-            if (EditorApplication.isPlaying)
+#if UNITY_EDITOR
+            var rendersLiveFrames = EditorApplication.isPlaying;
+#else
+            // A player is always presenting frames, so it always takes the
+            // ScreenCapture path and never the camera-render fallback.
+            var rendersLiveFrames = true;
+#endif
+
+            if (rendersLiveFrames)
             {
                 // CaptureScreenshot schedules a write at end-of-frame; the file
                 // will not exist immediately after this command returns.
@@ -133,7 +143,9 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     var bytes = CommandHelpers.CaptureCamera(cam, w, h);
                     CommandHelpers.EnsureDirectoryExists(savePath);
                     System.IO.File.WriteAllBytes(savePath, bytes);
+#if UNITY_EDITOR
                     CommandHelpers.ImportAssetIfUnderAssets(savePath);
+#endif
 
                     return (error: (string)null, result: new ScreenshotResult
                     {
@@ -145,6 +157,5 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 r => $"Captured Game View ({r.width}x{r.height})"
             );
         }
-#endif
     }
 }
