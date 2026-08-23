@@ -586,10 +586,37 @@ namespace Zh1Zh1.CSharpConsole.Service
             }
         }
 
+        // Closing a response while the request body sits unread makes Windows
+        // tear the connection down with RST instead of FIN, and the client sees
+        // a dropped call rather than the answer that was written for it. Every
+        // route that reads its body is unaffected; /health never needed one, and
+        // it failed 8 times in 40 calls against a player until this was added.
+        private static async Task DrainRequestBodyAsync(HttpListenerContext context)
+        {
+            try
+            {
+                if (!context.Request.HasEntityBody)
+                {
+                    return;
+                }
+
+                using (var body = context.Request.InputStream)
+                {
+                    await body.CopyToAsync(Stream.Null);
+                }
+            }
+            catch (Exception)
+            {
+                // The body is not wanted, only consumed; a client that hung up
+                // mid-send has nothing left worth reporting.
+            }
+        }
+
         private static async Task WriteEnvelopeResponseAsync(HttpListenerContext context, HttpResponseEnvelope response, string endpoint)
         {
             try
             {
+                await DrainRequestBodyAsync(context);
                 await WriteJsonResponseAsync(context, JsonUtility.ToJson(response));
             }
             catch (ObjectDisposedException)
