@@ -334,6 +334,25 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     }
 #endif
 
+                    // Asking for fields and writing none is a failure, not a
+                    // success with an empty list: the caller named a field that
+                    // does not exist on the component, or gave a value this
+                    // field's type cannot parse. Reporting ok here left callers
+                    // believing a write had landed when the value never changed.
+                    if (modifiedFields.Count == 0)
+                    {
+                        var requested = new List<string>();
+                        foreach (var field in fields)
+                        {
+                            if (!string.IsNullOrEmpty(field.name)) requested.Add(field.name);
+                        }
+
+                        return (
+                            error: $"No field of '{type.Name}' was modified. Requested: {string.Join(", ", requested)}. " +
+                                   "Check the field name against component/get, and that the value parses as that field's type.",
+                            result: (ModifyResult)null);
+                    }
+
                     return (error: (string)null, result: new ModifyResult
                     {
                         gameObjectInstanceId = go.GetInstanceID(),
