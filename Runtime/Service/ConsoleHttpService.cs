@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.IO.Compression;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
@@ -79,6 +78,7 @@ namespace Zh1Zh1.CSharpConsole.Service
             s_EditorREPLCompilerGenerator = editorCompilerGenerator ?? throw new ArgumentNullException(nameof(editorCompilerGenerator));
             s_EditorREPLExecutorGenerator = editorExecutorGenerator ?? throw new ArgumentNullException(nameof(editorExecutorGenerator));
             s_RuntimeREPLCompilerGenerator = runtimeCompilerGenerator ?? throw new ArgumentNullException(nameof(runtimeCompilerGenerator));
+            CompileSetStore.Initialize(Directory.GetParent(Application.dataPath).FullName);
             InitializeInternal();
 #else
             throw new InvalidOperationException("InitializeForEditor can only be called in the Unity Editor.");
@@ -381,16 +381,21 @@ namespace Zh1Zh1.CSharpConsole.Service
 #if UNITY_EDITOR
             if (path.EndsWith("/upload-dlls"))
             {
-                return ProcessUploadDllsAndReturnTrue(context);
+                return ReturnTrueAfter(ProcessUploadDlls(context));
+            }
+
+            if (path.EndsWith("/compile-set"))
+            {
+                return ReturnTrueAfter(ProcessCompileSet(context));
             }
 #endif
             return Task.FromResult(false);
         }
 
 #if UNITY_EDITOR
-        private static async Task<bool> ProcessUploadDllsAndReturnTrue(HttpListenerContext context)
+        private static async Task<bool> ReturnTrueAfter(Task handler)
         {
-            await ProcessUploadDlls(context);
+            await handler;
             return true;
         }
 #endif
@@ -552,11 +557,13 @@ namespace Zh1Zh1.CSharpConsole.Service
                 isCompiling = s_CachedIsCompiling,
                 compileFailed = s_CachedCompileFailed,
                 scriptChangesWhilePlaying = DescribeScriptChangesWhilePlaying(s_CachedScriptChangesWhilePlaying),
+                buildGuid = "",
 #else
                 isEditor = false,
                 isCompiling = false,
                 compileFailed = false,
                 scriptChangesWhilePlaying = "",
+                buildGuid = ConsoleBuildIdentity.BuildGuid,
 #endif
                 isUpdating = s_CachedIsUpdating,
                 isPlaying = s_CachedIsPlaying,
@@ -1307,6 +1314,7 @@ namespace Zh1Zh1.CSharpConsole.Service
 
             var result = "";
             string uuid = "";
+            HttpResponseEnvelope refusalEnvelope = null;
 
             try
             {
@@ -1340,21 +1348,35 @@ namespace Zh1Zh1.CSharpConsole.Service
                 }
                 else
                 {
-                    var compiler = s_ReplServiceRegistry.FetchRuntimeREPLCompiler(uuid, runtimeDllPath, s_RuntimeREPLCompilerGenerator);
-                    var (compileBytes, compileScriptClsName, errorMsg) = compiler.Compile(code, defines, defaultUsing);
-                    var compilerNotice = ConsumeCompilerNotice(compiler);
-                    if (!string.IsNullOrEmpty(errorMsg))
+                    // Resolved before compiling rather than after: the question is what to
+                    // compile against, so there is nothing to learn from compiling first.
+                    var (refusal, compileSetPath) = await ResolveRuntimeCompileSet(targetIP, targetPort, runtimeDllPath);
+                    if (refusal != null)
                     {
-                        result = $"Compile failed: {errorMsg}";
-                    }
-                    else if (compileBytes == null)
-                    {
-                        result = compilerNotice;
+                        // Typed here, where it is known to be a refusal, rather than left for
+                        // CreateTextEnvelope to recognise: that classifier also reads every
+                        // editor-mode result.
+                        refusalEnvelope = s_EnvelopeFactory.CreateEnvelope(false, "execute", "validation_error", refusal, uuid,
+                            JsonUtility.ToJson(new TextResponseData { text = refusal }));
                     }
                     else
                     {
-                        var executeResult = await ForwardDllToPlayer(targetIP, targetPort, uuid, compileBytes, compileScriptClsName);
-                        result = CombineCompilerNotice(compilerNotice, executeResult);
+                        var compiler = s_ReplServiceRegistry.FetchRuntimeREPLCompiler(uuid, compileSetPath, s_RuntimeREPLCompilerGenerator);
+                        var (compileBytes, compileScriptClsName, errorMsg) = compiler.Compile(code, defines, defaultUsing);
+                        var compilerNotice = ConsumeCompilerNotice(compiler);
+                        if (!string.IsNullOrEmpty(errorMsg))
+                        {
+                            result = $"Compile failed: {errorMsg}";
+                        }
+                        else if (compileBytes == null)
+                        {
+                            result = compilerNotice;
+                        }
+                        else
+                        {
+                            var executeResult = await ForwardDllToPlayer(targetIP, targetPort, uuid, compileBytes, compileScriptClsName);
+                            result = CombineCompilerNotice(compilerNotice, executeResult);
+                        }
                     }
                 }
             }
@@ -1363,7 +1385,7 @@ namespace Zh1Zh1.CSharpConsole.Service
                 result = $"Compile failed, {e}";
             }
 
-            var envelope = s_EnvelopeFactory.CreateTextEnvelope("execute", result, uuid);
+            var envelope = refusalEnvelope ?? s_EnvelopeFactory.CreateTextEnvelope("execute", result, uuid);
             await WriteEnvelopeResponseAsync(context, envelope, "RuntimeCompile");
         }
 
@@ -1409,6 +1431,186 @@ namespace Zh1Zh1.CSharpConsole.Service
             return responseText;
         }
 
+        /// <summary>
+        /// The compile set a submission for the player at <paramref name="ip"/> is compiled
+        /// against, or why it cannot be compiled yet.
+        ///
+        /// A caller that names its own set is taken at its word, unless the set names a
+        /// different build than the player's. Otherwise the player's build is looked up in
+        /// <see cref="CompileSetStore"/>: a registered set is used, a skipped build compiles
+        /// unaligned, and a build nothing was decided for is refused until one of the two
+        /// is. A player that does not report its build, or cannot be asked, compiles
+        /// unaligned as before -- there is nothing to look up.
+        ///
+        /// The player is asked on every submission rather than once per session: a session
+        /// outlives the player it was opened against, and a player restarted from another
+        /// build is the case this exists to catch.
+        /// </summary>
+        private static async Task<(string refusal, string compileSetPath)> ResolveRuntimeCompileSet(string ip, string port, string runtimeDllPath)
+        {
+            if (string.IsNullOrEmpty(ip))
+            {
+                return (null, runtimeDllPath);
+            }
+
+            if (!string.IsNullOrEmpty(runtimeDllPath))
+            {
+                var setBuildGuid = CompileSetStore.ReadBuildGuid(runtimeDllPath);
+                if (string.IsNullOrEmpty(setBuildGuid))
+                {
+                    return (null, runtimeDllPath);
+                }
+
+                var reported = await FetchPlayerBuildGuid(ip, port);
+                return string.IsNullOrEmpty(reported) || CompileSetStore.SameBuild(reported, setBuildGuid)
+                    ? (null, runtimeDllPath)
+                    : (DescribeBuildMismatch(reported, setBuildGuid, runtimeDllPath), null);
+            }
+
+            var playerBuildGuid = await FetchPlayerBuildGuid(ip, port);
+            if (string.IsNullOrEmpty(playerBuildGuid))
+            {
+                return (null, "");
+            }
+
+            if (CompileSetStore.TryLookup(playerBuildGuid, out var setDirectory))
+            {
+                return (null, setDirectory ?? "");
+            }
+
+            return ("[REPL ALIGNMENT REQUIRED]\n" +
+                    $"This player is build {playerBuildGuid}, and this editor has no compile set registered for it.\n" +
+                    "Register the CSharpConsoleCompileSet.zip exported beside that build (a file path or a URL), or skip alignment for this build.", null);
+        }
+
+        private static string DescribeBuildMismatch(string playerBuildGuid, string setBuildGuid, string setDirectory)
+        {
+            return "[REPL REFUSED]\n" +
+                   "The compile set is not from the build this player is running.\n" +
+                   $"  player was built as {playerBuildGuid}\n" +
+                   $"  compile set is from {setBuildGuid} ({setDirectory})\n" +
+                   "Compiling against it would use another build's symbols and assemblies.\n" +
+                   "Use the compile set exported beside the player that is running.";
+        }
+
+        /// <summary>
+        /// Registers a compile set for a player build, or records that the build is to be
+        /// compiled for without one. Either decision is kept by this editor, so it is made
+        /// once per build rather than by every caller.
+        ///
+        /// The body is the zip, or empty with skip=true. With targetIP/targetPort the player
+        /// is asked which build it is: a skip applies to that build, and a zip from any
+        /// other build is refused rather than registered where it would never be used.
+        /// </summary>
+        private static async Task ProcessCompileSet(HttpListenerContext context)
+        {
+            HttpResponseEnvelope response;
+            try
+            {
+                var query = context.Request.QueryString;
+                var targetIP = query["targetIP"] ?? "";
+                var targetPort = query["targetPort"] ?? "";
+                var skip = string.Equals(query["skip"], "true", StringComparison.OrdinalIgnoreCase);
+
+                using var body = new MemoryStream();
+                await context.Request.InputStream.CopyToAsync(body);
+
+                var playerBuildGuid = string.IsNullOrEmpty(targetIP) ? null : await FetchPlayerBuildGuid(targetIP, targetPort);
+                response = skip
+                    ? SkipCompileSet(targetIP, targetPort, playerBuildGuid)
+                    : RegisterCompileSet(body.ToArray(), playerBuildGuid);
+            }
+            catch (Exception e)
+            {
+                ConsoleLog.Error($"CompileSet exception: {e}");
+                response = CompileSetFailure("system_error", e.Message);
+            }
+
+            await WriteEnvelopeResponseAsync(context, response, "CompileSet");
+        }
+
+        private static HttpResponseEnvelope SkipCompileSet(string ip, string port, string playerBuildGuid)
+        {
+            if (playerBuildGuid == null)
+            {
+                return CompileSetFailure("validation_error", $"Could not skip alignment: the player at {ip}:{port} could not be reached to ask which build it is.");
+            }
+
+            if (!CompileSetStore.IsValidBuildGuid(playerBuildGuid))
+            {
+                return CompileSetFailure("validation_error", $"Nothing to skip: the player at {ip}:{port} does not report its build, so it is already compiled for without alignment.");
+            }
+
+            CompileSetStore.Skip(playerBuildGuid);
+            var data = new CompileSetResponse { buildGuid = playerBuildGuid, skipped = true };
+            return s_EnvelopeFactory.CreateEnvelope(true, "bootstrap", "ok", $"Build {playerBuildGuid} will be compiled for without alignment.", "", JsonUtility.ToJson(data));
+        }
+
+        private static HttpResponseEnvelope RegisterCompileSet(byte[] zipBytes, string playerBuildGuid)
+        {
+            if (zipBytes.Length == 0)
+            {
+                return CompileSetFailure("validation_error", "The request carried no zip. Send the CSharpConsoleCompileSet.zip exported beside the build, or skip=true.");
+            }
+
+            var setBuildGuid = CompileSetStore.ReadBuildGuid(zipBytes);
+            if (!CompileSetStore.IsValidBuildGuid(setBuildGuid))
+            {
+                return CompileSetFailure("validation_error", $"This zip does not name the build it came from ({CompileSetStore.GuidFileName} is missing at its root). Use the CSharpConsoleCompileSet.zip a build exports beside the player.");
+            }
+
+            if (CompileSetStore.IsValidBuildGuid(playerBuildGuid) && !CompileSetStore.SameBuild(playerBuildGuid, setBuildGuid))
+            {
+                return CompileSetFailure("validation_error", $"Not registered: this zip is from build {setBuildGuid}, but the player is build {playerBuildGuid}. Use the zip exported beside the player that is running.");
+            }
+
+            var setDirectory = CompileSetStore.ExtractCompileSet(zipBytes);
+            CompileSetStore.Register(setBuildGuid, setDirectory);
+            var data = new CompileSetResponse { buildGuid = setBuildGuid, runtimeDllPath = setDirectory };
+            return s_EnvelopeFactory.CreateEnvelope(true, "bootstrap", "ok", $"Registered the compile set for build {setBuildGuid}.", "", JsonUtility.ToJson(data));
+        }
+
+        private static HttpResponseEnvelope CompileSetFailure(string type, string message)
+        {
+            return s_EnvelopeFactory.CreateEnvelope(false, "bootstrap", type, message, "", JsonUtility.ToJson(new CompileSetResponse { error = message }));
+        }
+
+        /// <summary>
+        /// The build GUID the player reports, empty when it reports none (a player built
+        /// before the package carried its identity), or null when it could not be asked.
+        /// </summary>
+        private static async Task<string> FetchPlayerBuildGuid(string ip, string port)
+        {
+            try
+            {
+                using var response = await PostJsonToPlayer(ip, port, "health", "{}");
+                if (!response.IsSuccessStatusCode)
+                {
+                    // Warned rather than passed over: the player is about to be sent a
+                    // DLL over the same connection, so failing to read its identity is
+                    // a fault here, not a player that cannot answer.
+                    ConsoleLog.Warning(
+                        $"Could not read the build identity of the player at {ip}:{port}: "
+                        + $"health answered {(int)response.StatusCode}. Compiling without checking it.");
+                    return null;
+                }
+
+                var envelope = JsonUtility.FromJson<HttpResponseEnvelope>(await response.Content.ReadAsStringAsync());
+                if (envelope == null || string.IsNullOrEmpty(envelope.dataJson))
+                {
+                    return null;
+                }
+
+                var health = JsonUtility.FromJson<HealthResponse>(envelope.dataJson);
+                return health == null ? null : health.buildGuid ?? "";
+            }
+            catch (Exception e)
+            {
+                ConsoleLog.Debug($"Could not read the build identity of the player at {ip}:{port}: {e.Message}");
+                return null;
+            }
+        }
+
         private static async Task<string> ForwardDllToPlayer(string ip, string port, string uuid, byte[] dllBytes, string className)
         {
             var request = new ExecuteREPLRequest
@@ -1435,12 +1637,7 @@ namespace Zh1Zh1.CSharpConsole.Service
         {
             try
             {
-                var url = $"http://{ip}:{port}/CSharpConsole/execute";
-                var jsonBytes = Encoding.UTF8.GetBytes(JsonUtility.ToJson(request));
-                using var content = new ByteArrayContent(jsonBytes);
-                content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
-
-                using var response = await s_HttpClient.PostAsync(url, content);
+                using var response = await PostJsonToPlayer(ip, port, "execute", JsonUtility.ToJson(request));
                 var responseText = await response.Content.ReadAsStringAsync();
                 var executeText = ParseExecuteResponseText(responseText);
                 if (!response.IsSuccessStatusCode)
@@ -1457,6 +1654,14 @@ namespace Zh1Zh1.CSharpConsole.Service
             }
         }
 
+        /// <summary>A player's routes answer 405 to a GET and 415 to a body with no content type.</summary>
+        private static async Task<HttpResponseMessage> PostJsonToPlayer(string ip, string port, string route, string json)
+        {
+            using var content = new ByteArrayContent(Encoding.UTF8.GetBytes(json));
+            content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+            return await s_HttpClient.PostAsync($"http://{ip}:{port}/CSharpConsole/{route}", content);
+        }
+
         private static string ResolveRuntimeDefinesPath(string extractDir)
         {
             if (string.IsNullOrEmpty(extractDir))
@@ -1464,7 +1669,7 @@ namespace Zh1Zh1.CSharpConsole.Service
                 return "";
             }
 
-            var runtimeDefinesPath = Path.Combine(extractDir, "runtime-defines.txt");
+            var runtimeDefinesPath = Path.Combine(extractDir, CompileSetStore.DefinesFileName);
             return File.Exists(runtimeDefinesPath) ? runtimeDefinesPath : "";
         }
 
@@ -1486,41 +1691,7 @@ namespace Zh1Zh1.CSharpConsole.Service
 
                 ConsoleLog.Debug($"UploadDlls received {zipBytes.Length} bytes");
 
-                using var sha = System.Security.Cryptography.SHA256.Create();
-                var hashBytes = sha.ComputeHash(zipBytes);
-                var contentHash = BitConverter.ToString(hashBytes).Replace("-", "").Substring(0, 16);
-
-                var cacheRoot = Path.Combine(Path.GetTempPath(), "CSharpConsoleCache", "compileserver");
-                var extractDir = Path.Combine(cacheRoot, contentHash);
-
-                if (Directory.Exists(extractDir))
-                {
-                    ConsoleLog.Debug($"UploadDlls cache hit: {extractDir}");
-                }
-                else
-                {
-                    Directory.CreateDirectory(cacheRoot);
-                    var tmpDir = extractDir + $".tmp.{System.Diagnostics.Process.GetCurrentProcess().Id}";
-                    try
-                    {
-                        Directory.CreateDirectory(tmpDir);
-                        using (var zipStream = new MemoryStream(zipBytes))
-                        using (var archive = new ZipArchive(zipStream, ZipArchiveMode.Read))
-                        {
-                            archive.ExtractToDirectory(tmpDir);
-                        }
-
-                        Directory.Move(tmpDir, extractDir);
-                    }
-                    catch
-                    {
-                        try { Directory.Delete(tmpDir, true); } catch { /* best effort */ }
-                        throw;
-                    }
-
-                    ConsoleLog.Debug($"UploadDlls extracted to {extractDir}");
-                }
-
+                var extractDir = CompileSetStore.ExtractUpload(zipBytes);
                 var runtimeDefinesPath = ResolveRuntimeDefinesPath(extractDir);
                 var data = new UploadDllsResponse
                 {

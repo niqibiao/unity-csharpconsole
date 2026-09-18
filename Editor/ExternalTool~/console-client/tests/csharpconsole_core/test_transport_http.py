@@ -5,6 +5,7 @@ from unittest.mock import patch
 import _bootstrap  # noqa: F401
 from csharpconsole_core.transport_http import (
     TransportError,
+    get_bytes,
     post_binary,
     post_json,
     post_json_to_execute,
@@ -67,6 +68,24 @@ class TransportHttpTests(unittest.TestCase):
         urlopen_mock.side_effect = urllib.error.URLError("connection refused")
         with self.assertRaises(TransportError):
             post_json("http://127.0.0.1:14500/CSharpConsole", "health", {}, 2)
+
+    @patch("urllib.request.urlopen")
+    def test_get_bytes_returns_raw_body(self, urlopen_mock):
+        urlopen_mock.return_value = _FakeResponse(b"PK\x03\x04zip")
+        self.assertEqual(get_bytes("https://builds.example/set.zip", 5), b"PK\x03\x04zip")
+        self.assertEqual(urlopen_mock.call_args[0][0], "https://builds.example/set.zip")
+
+    @patch("urllib.request.urlopen")
+    def test_get_bytes_rejects_non_http_schemes(self, urlopen_mock):
+        with self.assertRaises(TransportError):
+            get_bytes("file:///etc/passwd", 5)
+        urlopen_mock.assert_not_called()
+
+    @patch("urllib.request.urlopen")
+    def test_get_bytes_wraps_http_errors(self, urlopen_mock):
+        urlopen_mock.side_effect = urllib.error.HTTPError("https://x/set.zip", 404, "Not Found", None, None)
+        with self.assertRaisesRegex(TransportError, "404"):
+            get_bytes("https://x/set.zip", 5)
 
 
 if __name__ == "__main__":

@@ -22,6 +22,20 @@ def zip_directory(dir_path, extra_file_path=None, extra_archive_name=None):
     return buf.getvalue()
 
 
+def is_url(source):
+    return source.lower().startswith(("http://", "https://"))
+
+
+def read_compile_set(source, fetch_bytes):
+    """Bytes of a compile set zip named by a local path or an http(s) URL."""
+    if is_url(source):
+        return fetch_bytes(source)
+    if not os.path.isfile(source):
+        raise FileNotFoundError(f"Compile set zip not found: {source}")
+    with open(source, "rb") as f:
+        return f.read()
+
+
 def prepare_runtime_artifacts(runtime_mode, runtime_dll_path, extra_file_path, extra_archive_name, upload_zip_to_compile_server, resolve_extra_value, set_extra_value, success_extra_key):
     if not runtime_mode:
         return make_result(True, "bootstrap", "", 0, "Editor mode does not require runtime artifacts", "", "editor")

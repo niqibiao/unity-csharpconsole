@@ -47,3 +47,15 @@ def post_json_to_execute(execute_base_url, payload, timeout_seconds):
 
 def post_binary(url, body, timeout_seconds):
     return _post(url, data=body, content_type="application/octet-stream", timeout_seconds=timeout_seconds)
+
+
+def get_bytes(url, timeout_seconds):
+    if not url.lower().startswith(("http://", "https://")):
+        raise TransportError(f"Only http:// and https:// URLs can be downloaded: {url}")
+    try:
+        with urllib.request.urlopen(url, timeout=timeout_seconds) as response:
+            return response.read()
+    except urllib.error.HTTPError as e:
+        raise TransportError(f"HTTP {e.code} {e.reason}") from e
+    except OSError as e:
+        raise TransportError(str(getattr(e, "reason", e))) from e

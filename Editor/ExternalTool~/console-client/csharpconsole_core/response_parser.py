@@ -214,6 +214,13 @@ def parse_command_http_response(raw, session_id, mode, run_id, duration_ms):
     return result
 
 
+def parse_compile_set_http_response(raw, mode, run_id, duration_ms):
+    result = _parse_envelope_result(raw, "bootstrap", "", mode, run_id, duration_ms)
+    if result is None:
+        raise ValueError("Invalid compile-set response")
+    return result
+
+
 def parse_upload_dlls_http_response(raw, mode, run_id, duration_ms):
     result = _parse_envelope_result(raw, "bootstrap", "", mode, run_id, duration_ms)
     if result is not None:

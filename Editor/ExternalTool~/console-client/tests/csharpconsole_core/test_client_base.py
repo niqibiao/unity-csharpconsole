@@ -1,10 +1,55 @@
 import unittest
 
 import _bootstrap  # noqa: F401
-from csharpconsole_core.client_base import generate_session_id, read_code_from_args, wait_for_service_recovery
+import json
+import urllib.parse
+
+from csharpconsole_core.client_base import generate_session_id, read_code_from_args, request_compile_set, wait_for_service_recovery
+from csharpconsole_core.response_parser import parse_compile_set_http_response
+from csharpconsole_core.transport_http import TransportError
+
+
+def _ok_envelope(summary):
+    return json.dumps({"ok": True, "stage": "bootstrap", "type": "ok", "summary": summary, "sessionId": "", "dataJson": "{}"})
 
 
 class ClientBaseTests(unittest.TestCase):
+    def test_request_compile_set_sends_the_zip_for_the_target_player(self):
+        calls = []
+
+        def post_binary(url, body, timeout):
+            calls.append((url, body))
+            return _ok_envelope("Registered")
+
+        result = request_compile_set(post_binary, parse_compile_set_http_response, "http://127.0.0.1:14500/CSharpConsole", "10.0.0.5", 15500, b"zip")
+        self.assertTrue(result["ok"])
+        url, body = calls[0]
+        parsed = urllib.parse.urlsplit(url)
+        self.assertEqual(parsed.path, "/CSharpConsole/compile-set")
+        self.assertEqual(urllib.parse.parse_qs(parsed.query), {"targetIP": ["10.0.0.5"], "targetPort": ["15500"]})
+        self.assertEqual(body, b"zip")
+
+    def test_request_compile_set_skip_sends_no_zip(self):
+        calls = []
+
+        def post_binary(url, body, timeout):
+            calls.append((url, body))
+            return _ok_envelope("Skipped")
+
+        request_compile_set(post_binary, parse_compile_set_http_response, "http://127.0.0.1:14500/CSharpConsole", "10.0.0.5", 15500, skip=True)
+        url, body = calls[0]
+        self.assertEqual(urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)["skip"], ["true"])
+        self.assertEqual(body, b"")
+
+    def test_request_compile_set_reports_transport_failure(self):
+        def post_binary(url, body, timeout):
+            raise TransportError("connection refused")
+
+        result = request_compile_set(post_binary, parse_compile_set_http_response, "http://127.0.0.1:14500/CSharpConsole", "10.0.0.5", 15500, b"zip")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["type"], "system_error")
+        self.assertIn("connection refused", result["summary"])
+
     def test_generate_session_id_uses_explicit_value(self):
         self.assertEqual(generate_session_id('sid-1'), 'sid-1')
 

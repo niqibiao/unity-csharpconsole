@@ -256,6 +256,7 @@ class BuiltinCommandCompletionTests(unittest.TestCase):
                 "/reset",
                 "/clear",
                 "/dofile",
+                "/compileset",
             ],
             "Builtin command completion order should advertise slash-prefixed commands",
         )
@@ -496,6 +497,53 @@ class BuiltinCommandFeedbackTests(unittest.TestCase):
             self.assertEqual(stream.getvalue(), "Usage: /completion 0|1\n\n")
         finally:
             repl.enable_completion = previous_enable_completion
+
+    def _compileset_registry(self):
+        registry = repl_builtins.BuiltinRegistry()
+        repl_builtins.register_default_builtins(registry, {})
+        return registry
+
+    def _run_compileset(self, message, runtime_mode, request_result=None):
+        previous_mode = config.runtime_mode
+        previous_request = client.request_compile_set
+        requests = []
+        try:
+            config.runtime_mode = runtime_mode
+            client.request_compile_set = lambda source: requests.append(source) or request_result
+            payload = repl_builtins.process_builtin_cmd(message, self._compileset_registry().commands)
+        finally:
+            config.runtime_mode = previous_mode
+            client.request_compile_set = previous_request
+        return payload, requests
+
+    def test_compileset_builtin_is_runtime_only(self):
+        payload, requests = self._run_compileset("/compileset build.zip", runtime_mode=False)
+        self.assertTrue(payload["result"]["ok"])
+        self.assertIn("runtime mode", payload["result"]["data"]["text"])
+        self.assertEqual(requests, [])
+
+    def test_compileset_builtin_registers_the_given_source(self):
+        ok = {"ok": True, "summary": "Registered the compile set for build abc."}
+        payload, requests = self._run_compileset("/compileset C:/builds/CSharpConsoleCompileSet.zip", True, ok)
+        self.assertTrue(payload["result"]["ok"])
+        self.assertEqual(requests, ["C:/builds/CSharpConsoleCompileSet.zip"])
+        self.assertIn("Registered the compile set", payload["result"]["data"]["text"])
+
+    def test_compileset_builtin_reports_a_refused_registration_as_failure(self):
+        refused = {"ok": False, "summary": "Not registered: this zip is from build z, but the player is build x."}
+        payload, _ = self._run_compileset("/compileset skip", True, refused)
+        self.assertFalse(payload["result"]["ok"])
+        self.assertIn("Not registered", payload["result"]["summary"])
+
+    def test_alignment_required_result_gains_the_repl_hint(self):
+        text = "[REPL ALIGNMENT REQUIRED]\nThis player is build x, and this editor has no compile set registered for it."
+        result = client._with_alignment_hint({"ok": False, "summary": text, "data": {"text": text}})
+        self.assertTrue(result["summary"].endswith("/compileset skip."))
+        self.assertTrue(result["data"]["text"].endswith("/compileset skip."))
+
+    def test_other_failures_are_left_alone(self):
+        result = client._with_alignment_hint({"ok": False, "summary": "Compile failed: CS1002", "data": {"text": "x"}})
+        self.assertEqual(result["summary"], "Compile failed: CS1002")
 
     def test_process_builtin_cmd_ignores_non_slash_prefixed_input(self):
         registry = repl_builtins.BuiltinRegistry()

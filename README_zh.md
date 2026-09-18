@@ -173,6 +173,21 @@ python "Editor/ExternalTool~/console-client/csharp_repl.py" \
 
 两项设置持久化在 `EditorPrefs` 中，仅在 **Remote Is Editor** 未勾选时生效。留空则使用默认值（Editor 程序集和宏定义）。
 
+### 编译集对齐
+
+Runtime 提交在 Editor 中编译、在 Player 中运行。每次 Player 构建都会在产物旁生成 `CSharpConsoleCompileSet.zip`，其中包含该构建实际打入的程序集、编译时使用的宏定义，以及构建 GUID。对照这份编译集编译后，调用被裁剪 API 的代码会直接报编译错误并给出行号，`#if` 也会与 Player 端走同一个分支。
+
+Editor 按 Player 构建做决定。某个构建第一次收到 runtime 提交而 Editor 尚无决定时，会以 `[REPL ALIGNMENT REQUIRED]` 拒绝，回答一次即可：
+
+```text
+/compileset <CSharpConsoleCompileSet.zip 路径 | http(s) 地址>
+/compileset skip
+```
+
+决定由 Editor 按 Player 的构建 GUID 保存，之后针对该构建的所有提交（无论来自本 REPL 还是其他客户端）都直接沿用，不再询问。随时可以再次执行 `/compileset` 换一个 zip，或在对齐与跳过之间切换。Player 换成新构建后会重新询问。与运行中 Player 不属于同一构建的 zip 会被拒绝登记。决定与已登记的编译集保存在工程的 `Library/CSharpConsole/CompileSets/` 下，Editor 重启后仍然有效；删除 `Library/` 会清空它们，届时 Editor 会重新询问。
+
+> 在此功能之前构建的 Player 不上报构建 GUID，按原方式编译。对齐描述的是打包时的构建：之后通过热更新替换的代码不会反映在编译集中。
+
 ### 快捷键
 
 | 按键 | 操作 |
@@ -197,6 +212,7 @@ python "Editor/ExternalTool~/console-client/csharp_repl.py" \
 | `/reset` | 重置 REPL 会话 |
 | `/clear` | 清空终端 |
 | `/dofile <path>` | 执行本地 `.cs` 文件 |
+| `/compileset <zip\|URL\|skip>` | 登记 Player 构建的编译集，或跳过对齐（runtime 模式） |
 
 ### 命令表达式
 

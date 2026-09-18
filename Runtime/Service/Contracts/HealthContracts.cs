@@ -59,6 +59,15 @@ namespace Zh1Zh1.CSharpConsole.Service
         public string packageVersion = "";
         public int protocolVersion;
         public string unityVersion = "";
+
+        /// <summary>
+        /// The build this player came from, empty in the editor and in players built
+        /// before the package reported it. Lets the compiling editor tell whether the
+        /// material it is about to compile against describes this player -- see
+        /// ConsoleBuildIdentity.
+        /// </summary>
+        public string buildGuid = "";
+
         public bool isCompiling;
         public bool compileFailed;
         public bool isUpdating;

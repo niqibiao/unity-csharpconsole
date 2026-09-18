@@ -1,7 +1,7 @@
 import os
 
 from . import config, output, runtime_artifacts
-from csharpconsole_core import client_base, command_protocol, models, response_parser, transport_http
+from csharpconsole_core import client_base, command_protocol, models, response_parser, runtime_artifacts_base, transport_http
 
 make_result = models.make_result
 new_run_id = models.new_run_id
@@ -11,6 +11,9 @@ _DEFAULT_USING_PREFIX_CACHE = None
 _DEFAULT_DEFINE_CACHE = None
 _RUNTIME_DEFINE_LINE_CACHE = None
 _RUNTIME_DEFINE_LINE_OVERRIDE = None
+
+_ALIGNMENT_REQUIRED_MARKER = "[REPL ALIGNMENT REQUIRED]"
+_ALIGNMENT_HINT = "In this REPL: /compileset <zip path or URL>, or /compileset skip."
 
 
 def _runtime_defines_log(message):
@@ -128,7 +131,28 @@ def execute_editor_request(message, session_id, reset=False, invalidate_completi
 
 
 def execute_runtime_request(message, session_id, reset=False, invalidate_completion=None):
-    return client_base.execute_runtime_request(post_json, response_parser.parse_text_http_response, get_default_define_line, get_default_using_prefix, config.runtime_ip, config.runtime_port, config.runtime_dll_path, message, session_id, reset=reset, invalidate_completion=invalidate_completion)
+    result = client_base.execute_runtime_request(post_json, response_parser.parse_text_http_response, get_default_define_line, get_default_using_prefix, config.runtime_ip, config.runtime_port, config.runtime_dll_path, message, session_id, reset=reset, invalidate_completion=invalidate_completion)
+    return _with_alignment_hint(result)
+
+
+def _with_alignment_hint(result):
+    if result.get("ok") or not (result.get("summary") or "").startswith(_ALIGNMENT_REQUIRED_MARKER):
+        return result
+    result["summary"] = f"{result['summary']}\n{_ALIGNMENT_HINT}"
+    data = result.get("data")
+    if isinstance(data, dict) and isinstance(data.get("text"), str):
+        data["text"] = f"{data['text']}\n{_ALIGNMENT_HINT}"
+    return result
+
+
+def request_compile_set(source):
+    """Register the compile set at *source* (a zip path or an http(s) URL) for the
+    player's build, or skip alignment for it when *source* is 'skip'."""
+    skip = source.strip().lower() == "skip"
+    zip_bytes = None
+    if not skip:
+        zip_bytes = runtime_artifacts_base.read_compile_set(source, lambda url: transport_http.get_bytes(url, client_base.TIMEOUT_COMPILE_SET))
+    return client_base.request_compile_set(transport_http.post_binary, response_parser.parse_compile_set_http_response, config.current_server_base_url(), config.runtime_ip, config.runtime_port, zip_bytes, skip)
 
 
 def compile_editor_request(message, session_id):

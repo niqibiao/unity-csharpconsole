@@ -47,7 +47,13 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
                 resultType = "system_error";
                 stage = "unknown";
             }
-            else if (lowered.Contains("exception") || lowered.Contains("load error:") || lowered.Contains("execution error:"))
+            // Matched by the exact text the service writes for its own failures, never by a bare
+            // word: a submission's result is free text, and "exception" in it is not a failure.
+            // Contains rather than StartsWith where a compiler notice may be prepended.
+            else if (lowered.StartsWith("c# exception:")
+                     || lowered.Contains("[c#console] execute exception:")
+                     || lowered.Contains("[c#console] load error:")
+                     || lowered.Contains("[c#console] execution error:"))
             {
                 ok = false;
                 resultType = "runtime_error";

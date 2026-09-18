@@ -1,4 +1,5 @@
 import time
+import urllib.parse
 import uuid
 
 from .models import make_result, new_run_id
@@ -20,6 +21,8 @@ TIMEOUT_EXEC_COMPILED = 30
 # Compile-only requests.
 TIMEOUT_COMPILE_EDITOR = 10
 TIMEOUT_COMPILE_RUNTIME = 30
+# A compile set zip holds a build's assemblies; transfer takes as long as it takes.
+TIMEOUT_COMPILE_SET = 600
 
 
 def generate_session_id(explicit_session=None):
@@ -151,6 +154,26 @@ def request_completion(post_json, parse_completion_http_response, current_mode_n
         return make_result(False, "compile", "system_error", 3, f"Completion request failed: {e}", session_id, current_mode_name(), run_id, (time.time() - start) * 1000)
     except Exception as e:
         return make_result(False, "compile", "system_error", 3, str(e), session_id, current_mode_name(), run_id, (time.time() - start) * 1000)
+
+
+def request_compile_set(post_binary, parse_compile_set_http_response, compile_server_base_url, runtime_ip, runtime_port, zip_bytes=None, skip=False):
+    """Register a compile set for the player's build, or skip alignment for it.
+
+    The decision is kept by the compile server, keyed by the build the player reports,
+    so it is made once per build rather than once per caller."""
+    start = time.time()
+    run_id = new_run_id()
+    query = {"targetIP": runtime_ip, "targetPort": str(runtime_port)}
+    if skip:
+        query["skip"] = "true"
+    url = f"{compile_server_base_url}/compile-set?{urllib.parse.urlencode(query)}"
+    try:
+        raw = post_binary(url, b"" if skip else zip_bytes, TIMEOUT_COMPILE_SET)
+        return parse_compile_set_http_response(raw, "runtime", run_id, (time.time() - start) * 1000)
+    except TransportError as e:
+        return make_result(False, "bootstrap", "system_error", 3, f"Compile set request failed: {e}", "", "runtime", run_id, (time.time() - start) * 1000)
+    except Exception as e:
+        return make_result(False, "bootstrap", "system_error", 3, str(e), "", "runtime", run_id, (time.time() - start) * 1000)
 
 
 def request_health(post_json, parse_health_http_response, current_mode_name):

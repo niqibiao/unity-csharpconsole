@@ -174,6 +174,21 @@ When connecting to a Runtime Player via **Console > RemoteC#Console**, two optio
 
 Both settings are persisted in `EditorPrefs` and only apply when **Remote Is Editor** is unchecked. Leave them empty to use defaults (Editor assemblies and defines).
 
+### Compile Set Alignment
+
+Runtime submissions are compiled in the Editor but run in the Player. Every Player build writes `CSharpConsoleCompileSet.zip` beside its output: the assemblies it shipped, the symbols it was compiled with, and its build GUID. Compiling against that set turns calls to stripped APIs into compile errors with line numbers, and makes `#if` take the same branch as in the Player.
+
+The Editor decides per Player build. The first runtime submission for a build it has no decision for is refused with `[REPL ALIGNMENT REQUIRED]`; answer it once:
+
+```text
+/compileset <path to CSharpConsoleCompileSet.zip | http(s) URL>
+/compileset skip
+```
+
+The decision is kept by the Editor keyed by the Player's build GUID, so every later submission for that build — from this REPL or any other client — uses it without asking again. Run `/compileset` again at any time to register a different zip or to switch between aligned and skipped. A Player restarted from a new build asks again. A zip from a different build than the running Player is refused rather than registered. Decisions and registered sets are stored under the project's `Library/CSharpConsole/CompileSets/`, so they survive Editor restarts; deleting `Library/` clears them and the Editor asks again.
+
+> Players built before this feature do not report a build GUID and are compiled for as before. Alignment describes the build as shipped: code replaced later by hot update is not reflected in the set.
+
 ### Key Bindings
 
 | Key | Action |
@@ -198,6 +213,7 @@ Completion activates automatically as you type. The toolbar shows semantic compl
 | `/reset` | Reset the REPL session |
 | `/clear` | Clear the terminal |
 | `/dofile <path>` | Execute a local `.cs` file |
+| `/compileset <zip\|URL\|skip>` | Register the Player build's compile set, or skip alignment (runtime mode) |
 
 ### Command Expressions
 

@@ -61,6 +61,15 @@ namespace Zh1Zh1.CSharpConsole.Service
     }
 
     [Serializable]
+    internal class CompileSetResponse
+    {
+        public string buildGuid = "";
+        public string runtimeDllPath = "";
+        public bool skipped;
+        public string error = "";
+    }
+
+    [Serializable]
     internal class CompileOnlyResponse
     {
         public string dllBase64 = "";

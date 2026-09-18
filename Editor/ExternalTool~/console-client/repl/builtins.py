@@ -15,7 +15,7 @@ from . import client, config
 class BuiltinRegistry:
     def __init__(self):
         self.commands = {}
-        self.order = ["/help", "/completion", "/theme", "/using", "/define", "/reload", "/reset", "/clear", "/dofile"]
+        self.order = ["/help", "/completion", "/theme", "/using", "/define", "/reload", "/reset", "/clear", "/dofile", "/compileset"]
 
     def decorator(self, cmd, description, completion=None):
         def register(func):
@@ -254,3 +254,17 @@ def register_default_builtins(registry, state):
             state["execute_repl_snippet"](code)
         else:
             print((f"File not found: {full_path}\n"))
+
+    @registry.decorator("/compileset", "Register the player build's compile set (zip path or URL), or skip alignment", completion="/compileset ")
+    def register_compile_set(message):
+        if not config.runtime_mode:
+            print("Compile sets only apply to runtime mode.\n")
+            return
+        source = message.strip()
+        if not source:
+            print("Usage: /compileset <path to CSharpConsoleCompileSet.zip | http(s) URL>\n       /compileset skip\n")
+            return
+        result = client.request_compile_set(source)
+        if not result["ok"]:
+            raise RuntimeError(result["summary"])
+        print(f"{result['summary']}\n")

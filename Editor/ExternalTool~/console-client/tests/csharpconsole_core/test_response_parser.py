@@ -2,10 +2,41 @@ import json
 import unittest
 
 import _bootstrap  # noqa: F401
-from csharpconsole_core.response_parser import parse_command_http_response, parse_text_http_response
+from csharpconsole_core.response_parser import parse_command_http_response, parse_compile_set_http_response, parse_text_http_response
 
 
 class ResponseParserTests(unittest.TestCase):
+    def test_parse_compile_set_http_response_reports_the_registered_build(self):
+        raw = json.dumps({
+            "ok": True,
+            "stage": "bootstrap",
+            "type": "ok",
+            "summary": "Registered the compile set for build abc.",
+            "sessionId": "",
+            "dataJson": json.dumps({"buildGuid": "abc", "runtimeDllPath": "C:/cache/1", "skipped": False, "error": ""}),
+        })
+        result = parse_compile_set_http_response(raw, "runtime", "run-1", 5)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["data"]["buildGuid"], "abc")
+
+    def test_parse_compile_set_http_response_keeps_validation_failures(self):
+        raw = json.dumps({
+            "ok": False,
+            "stage": "bootstrap",
+            "type": "validation_error",
+            "summary": "Not registered: this zip is from build z, but the player is build x.",
+            "sessionId": "",
+            "dataJson": json.dumps({"error": "mismatch"}),
+        })
+        result = parse_compile_set_http_response(raw, "runtime", "run-1", 5)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["type"], "validation_error")
+        self.assertEqual(result["exitCode"], 1)
+
+    def test_parse_compile_set_http_response_rejects_non_envelopes(self):
+        with self.assertRaises(ValueError):
+            parse_compile_set_http_response("not json", "runtime", "run-1", 5)
+
     def test_parse_text_http_response_envelope_extracts_text(self):
         raw = json.dumps({
             "ok": True,
