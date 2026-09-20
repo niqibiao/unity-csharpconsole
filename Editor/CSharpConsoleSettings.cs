@@ -91,8 +91,16 @@ namespace Zh1Zh1.CSharpConsole.Editor
                         using (new EditorGUILayout.HorizontalScope())
                         {
                             EditorGUILayout.PrefixLabel("Export ZIP Path");
+                            var wasOverridden = settings.overrideExportCompileSetPath;
                             settings.overrideExportCompileSetPath = EditorGUILayout.ToggleLeft(
                                 "Override", settings.overrideExportCompileSetPath, GUILayout.Width(80));
+                            if (!wasOverridden && settings.overrideExportCompileSetPath
+                                && string.IsNullOrWhiteSpace(settings.exportCompileSetPath)
+                                && Path.IsPathRooted(defaultPath))
+                            {
+                                // Seed from the real default, never from the unresolved preview placeholder.
+                                settings.exportCompileSetPath = defaultPath;
+                            }
                             using (new EditorGUI.DisabledScope(!settings.overrideExportCompileSetPath))
                             {
                                 var path = EditorGUILayout.TextField(settings.overrideExportCompileSetPath
