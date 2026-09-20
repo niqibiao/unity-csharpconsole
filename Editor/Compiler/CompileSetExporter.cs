@@ -27,7 +27,17 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
         /// build, not for the build to load, and a player directory is often copied or
         /// packaged wholesale.
         /// </summary>
-        private const string FileName = "CSharpConsoleCompileSet.zip";
+        internal const string FileName = "CSharpConsoleCompileSet.zip";
+
+        internal static string GetDefaultExportPath(string playerOutputPath)
+        {
+            if (string.IsNullOrWhiteSpace(playerOutputPath))
+            {
+                return null;
+            }
+            var directory = Path.GetDirectoryName(playerOutputPath);
+            return string.IsNullOrEmpty(directory) ? null : Path.Combine(directory, FileName);
+        }
 
         /// <summary>
         /// Compiling against the stripped set alone does not work: script submissions
@@ -51,13 +61,12 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
             var zipPath = exportPath;
             if (string.IsNullOrEmpty(zipPath))
             {
-                var directory = Path.GetDirectoryName(playerOutputPath);
-                if (string.IsNullOrEmpty(directory))
+                zipPath = GetDefaultExportPath(playerOutputPath);
+                if (zipPath == null)
                 {
                     ConsoleLog.Warning($"Could not work out where to put {FileName}: this build reported no output path.");
                     return;
                 }
-                zipPath = Path.Combine(directory, FileName);
             }
 
             Directory.CreateDirectory(Path.GetDirectoryName(zipPath));

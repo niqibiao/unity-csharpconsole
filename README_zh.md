@@ -170,7 +170,7 @@ Runtime 提交在 Editor 中编译、在 Player 中运行。默认每次 Player 
 
 在 **Edit > Project Settings > C# Console > Export Compile Set After Build** 切换自动导出。该工程级设置保存在 `ProjectSettings/CSharpConsoleSettings.json` 的 `exportCompileSetAfterBuild` 字段中，对批处理构建同样生效。关闭不会删除已有编译集。
 
-同一页面的 **Export ZIP Path** 可指定输出文件，例如 `Build/CompileSets/Player.zip`，也可以点击 **Browse...** 选择。支持绝对路径和相对工程根目录的路径，缺少的目录会自动创建；留空则继续导出到 Player 产物旁。路径保存在同一 JSON 文件的 `exportCompileSetPath` 字段中，每次导出会覆盖所选路径的 ZIP。
+**Export ZIP Path** 旁的 **Override** 默认不勾选，此时路径框灰显默认路径，导出到 Player 产物旁。预览使用当前平台保存的构建位置，尚未设置时显示 `<Player output directory>/CSharpConsoleCompileSet.zip`；实际路径随每次构建的输出位置变化。勾选 **Override** 后可以编辑 ZIP 文件路径，例如 `Build/CompileSets/Player.zip`，也可以点击 **Browse...** 选择。支持绝对路径和相对工程根目录的路径，缺少的目录会自动创建；取消勾选会保留自定义路径，方便再次启用。复选框和路径分别保存在同一 JSON 文件的 `overrideExportCompileSetPath` 和 `exportCompileSetPath` 字段中，每次导出会覆盖所选路径的 ZIP。
 
 带 `build-guid.txt` 的目录被视为编译和补全所用的完整引用集合，不会额外加入 Editor 专用程序集。空集合或无法读取的 DLL 会明确报错。为兼容已有客户端，REPL 的 `--runtime-dll-path` 和 `--runtime-defines` 参数仍可使用；不含构建 GUID 的普通 DLL 目录会替换同名程序集。导出的 `mscorlib.dll` 使用目标平台未裁剪的 BCL，以支持 Roslyn 脚本编译，因此对齐不能提前发现所有 BCL 成员裁剪造成的运行错误。
 

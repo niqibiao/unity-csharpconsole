@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
 using UnityEngine;
+using Zh1Zh1.CSharpConsole.Editor.Compiler;
 
 namespace Zh1Zh1.CSharpConsole.Editor
 {
@@ -10,6 +11,7 @@ namespace Zh1Zh1.CSharpConsole.Editor
     internal sealed class CSharpConsoleSettings
     {
         public bool exportCompileSetAfterBuild = true;
+        public bool overrideExportCompileSetPath;
         public string exportCompileSetPath = "";
 
         internal static string FilePath => Path.Combine(
@@ -21,8 +23,12 @@ namespace Zh1Zh1.CSharpConsole.Editor
             var settings = new CSharpConsoleSettings();
             if (File.Exists(FilePath))
             {
-                // Keep the default when an older settings file omits the field.
-                JsonUtility.FromJsonOverwrite(File.ReadAllText(FilePath), settings);
+                var json = File.ReadAllText(FilePath);
+                JsonUtility.FromJsonOverwrite(json, settings);
+                // Preserve custom paths saved before the Override checkbox existed.
+                // A second pass lets an explicitly saved false take precedence.
+                settings.overrideExportCompileSetPath = !string.IsNullOrWhiteSpace(settings.exportCompileSetPath);
+                JsonUtility.FromJsonOverwrite(json, settings);
             }
             return settings;
         }
@@ -34,9 +40,14 @@ namespace Zh1Zh1.CSharpConsole.Editor
 
         internal string ResolveExportPath()
         {
-            if (string.IsNullOrWhiteSpace(exportCompileSetPath))
+            if (!overrideExportCompileSetPath)
             {
                 return null;
+            }
+
+            if (string.IsNullOrWhiteSpace(exportCompileSetPath))
+            {
+                throw new ArgumentException("Choose an Export ZIP Path or turn off Override to use the default.");
             }
 
             var path = exportCompileSetPath.Trim();
@@ -47,6 +58,16 @@ namespace Zh1Zh1.CSharpConsole.Editor
             return Path.GetFullPath(Path.IsPathRooted(path)
                 ? path
                 : Path.Combine(Directory.GetParent(Application.dataPath).FullName, path));
+        }
+
+        internal static string GetDefaultExportPathPreview()
+        {
+            var target = EditorUserBuildSettings.activeBuildTarget;
+            var playerOutput = EditorUserBuildSettings.GetBuildLocation(target);
+            var path = CompileSetExporter.GetDefaultExportPath(playerOutput);
+            return path == null
+                ? "<Player output directory>/" + CompileSetExporter.FileName
+                : Path.GetFullPath(Path.Combine(Directory.GetParent(Application.dataPath).FullName, path));
         }
 
         [SettingsProvider]
@@ -60,6 +81,7 @@ namespace Zh1Zh1.CSharpConsole.Editor
                     try
                     {
                         var settings = Load();
+                        var defaultPath = GetDefaultExportPathPreview();
                         EditorGUI.BeginChangeCheck();
                         settings.exportCompileSetAfterBuild = EditorGUILayout.ToggleLeft(
                             new GUIContent("Export Compile Set After Build",
@@ -68,20 +90,27 @@ namespace Zh1Zh1.CSharpConsole.Editor
                         using (new EditorGUI.DisabledScope(!settings.exportCompileSetAfterBuild))
                         using (new EditorGUILayout.HorizontalScope())
                         {
-                            settings.exportCompileSetPath = EditorGUILayout.TextField(
-                                new GUIContent("Export ZIP Path",
-                                    "Full ZIP file path. Relative paths are resolved from the project root. " +
-                                    "Leave empty to export CSharpConsoleCompileSet.zip beside the Player."),
-                                settings.exportCompileSetPath);
-                            if (GUILayout.Button("Browse...", GUILayout.Width(80)))
+                            EditorGUILayout.PrefixLabel("Export ZIP Path");
+                            settings.overrideExportCompileSetPath = EditorGUILayout.ToggleLeft(
+                                "Override", settings.overrideExportCompileSetPath, GUILayout.Width(80));
+                            using (new EditorGUI.DisabledScope(!settings.overrideExportCompileSetPath))
                             {
-                                var selected = EditorUtility.SaveFilePanel("Export Compile Set",
-                                    Directory.GetParent(Application.dataPath).FullName,
-                                    "CSharpConsoleCompileSet", "zip");
-                                if (!string.IsNullOrEmpty(selected))
+                                var path = EditorGUILayout.TextField(settings.overrideExportCompileSetPath
+                                    ? settings.exportCompileSetPath : defaultPath);
+                                if (settings.overrideExportCompileSetPath)
                                 {
-                                    settings.exportCompileSetPath = selected;
-                                    GUI.changed = true;
+                                    settings.exportCompileSetPath = path;
+                                }
+                                if (GUILayout.Button("Browse...", GUILayout.Width(80)))
+                                {
+                                    var selected = EditorUtility.SaveFilePanel("Export Compile Set",
+                                        Directory.GetParent(Application.dataPath).FullName,
+                                        "CSharpConsoleCompileSet", "zip");
+                                    if (!string.IsNullOrEmpty(selected))
+                                    {
+                                        settings.exportCompileSetPath = selected;
+                                        GUI.changed = true;
+                                    }
                                 }
                             }
                         }
@@ -91,7 +120,8 @@ namespace Zh1Zh1.CSharpConsole.Editor
                         }
                         EditorGUILayout.HelpBox(
                             "Export the Player's assemblies and defines for runtime REPL alignment. " +
-                            "Leave the ZIP path empty to export beside the Player. " +
+                            "Turn off Override to export beside the Player. The default path follows the build output; " +
+                            "the preview uses the current target's saved build location when available. " +
                             "Relative paths start at the project root; missing folders are created. " +
                             "Disabling export leaves existing compile sets in place.", MessageType.Info);
                         if (settings.exportCompileSetAfterBuild)
