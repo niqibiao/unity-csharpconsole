@@ -163,22 +163,13 @@ python "Editor/ExternalTool~/console-client/csharp_repl.py" \
 
 Python 3.7+ is required. Python dependencies (`requests`, `prompt_toolkit`, `Pygments`) are installed automatically on first launch.
 
-### Remote Runtime — Optional Settings
-
-When connecting to a Runtime Player via **Console > RemoteC#Console**, two optional settings override what submissions are compiled against. Leave both empty in the usual case: the Editor then compiles against the compile set registered for the Player's build (see [Compile Set Alignment](#compile-set-alignment)).
-
-| Setting | Description |
-|---------|-------------|
-| **Runtime Dll Path** | A directory of assemblies that replace the same-named ones the compiler would otherwise use; when set, it is used instead of any registered compile set. Use it for code the build did not ship, such as hot-updated assemblies: unzip the build's `CSharpConsoleCompileSet.zip` and replace the hot-updated DLLs in it, so the build's other assemblies and symbols still apply. |
-| **Runtime Defines File** | A `.txt` file of preprocessor defines, one per line or semicolon-separated (e.g. `UNITY_ANDROID;IL2CPP;DEVELOPMENT_BUILD`). Ignored when compiling against a compile set a build exported, which carries the symbols that build was compiled with. |
-
-Both settings are persisted in `EditorPrefs` and only apply when **Remote Is Editor** is unchecked.
-
 ### Compile Set Alignment
+
+When connecting via **Console > RemoteC#Console**, enter the compile server and Player addresses. The Editor uses the compile set registered for that Player's build; separate DLL and define paths are not needed in the connection window.
 
 Runtime submissions are compiled in the Editor but run in the Player. Every Player build writes `CSharpConsoleCompileSet.zip` beside its output: the assemblies it shipped, the symbols it was compiled with, and its build GUID. Compiling against that set turns calls to stripped APIs into compile errors with line numbers, and makes `#if` take the same branch as in the Player.
 
-A directory carrying `build-guid.txt` is treated as a complete reference set for compilation and completion; Editor-only assemblies are not added. This also applies when **Runtime Dll Path** points to an extracted build set. An empty set or an unreadable DLL reports an error. Plain DLL directories without a build GUID retain the same-name replacement behavior described above. The exported `mscorlib.dll` uses the target's unstripped BCL to support Roslyn script compilation, so alignment cannot detect every stripped BCL member before execution.
+A directory carrying `build-guid.txt` is treated as a complete reference set for compilation and completion; Editor-only assemblies are not added. An empty set or an unreadable DLL reports an error. For existing clients, the `--runtime-dll-path` and `--runtime-defines` REPL arguments remain supported; plain DLL directories without a build GUID replace same-named references. The exported `mscorlib.dll` uses the target's unstripped BCL to support Roslyn script compilation, so alignment cannot detect every stripped BCL member before execution.
 
 The Editor decides per Player build. The first runtime submission for a build it has no decision for is refused with `[REPL ALIGNMENT REQUIRED]`; answer it once:
 
@@ -189,7 +180,7 @@ The Editor decides per Player build. The first runtime submission for a build it
 
 The decision is kept by the Editor keyed by the Player's build GUID, so every later submission for that build — from this REPL or any other client — uses it without asking again. Run `/compileset` again at any time to register a different zip or to switch between aligned and skipped. A Player restarted from a new build asks again. A zip from a different build than the running Player is refused rather than registered. Decisions and registered sets are stored under the project's `Library/CSharpConsole/CompileSets/`, so they survive Editor restarts; deleting `Library/` clears them and the Editor asks again.
 
-> Players built before this feature do not report a build GUID and are compiled for as before. Alignment describes the build as shipped: code replaced later by hot update is not reflected in the set — use **Runtime Dll Path** above for that.
+> Players built before this feature do not report a build GUID and are compiled for as before. For hot-updated code, unpack the build's zip, replace the updated DLLs while preserving `build-guid.txt` and `runtime-defines.txt` at the archive root, then repack and register it with `/compileset`. This updates the registered set for all sessions using that build.
 
 ### Key Bindings
 

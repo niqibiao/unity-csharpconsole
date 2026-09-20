@@ -19,7 +19,7 @@ namespace Zh1Zh1.CSharpConsole.Editor.EditorTools
         [MenuItem("Console/C#Console", false)]
         public static void LaunchLocalCSharpConsole()
         {
-            LaunchCSharpConsole(true, LocalHost, ConsoleHttpService.Port, "", LocalHost, ConsoleHttpService.EDITOR_PORT, "");
+            LaunchCSharpConsole(true, LocalHost, ConsoleHttpService.Port, LocalHost, ConsoleHttpService.EDITOR_PORT);
         }
 
         [MenuItem("Console/RemoteC#Console", false)]
@@ -28,7 +28,7 @@ namespace Zh1Zh1.CSharpConsole.Editor.EditorTools
             try
             {
                 var ret = await RemoteConsoleWindow.ShowWindow(ConsoleHttpService.EDITOR_PORT, ConsoleHttpService.PLAYER_PORT);
-                LaunchCSharpConsole(ret.RemoteIsEditor, ret.IP, ret.Port, ret.RuntimeDllPath, ret.CompileServerIP, ret.CompileServerPort, ret.RuntimeDefinesPath);
+                LaunchCSharpConsole(ret.RemoteIsEditor, ret.IP, ret.Port, ret.CompileServerIP, ret.CompileServerPort);
             }
             catch (Exception e)
             {
@@ -39,8 +39,7 @@ namespace Zh1Zh1.CSharpConsole.Editor.EditorTools
 
 #region CSharp Launcher
         private static void LaunchCSharpConsole(
-            bool remoteIsEditor, string ip, int port, string runtimeDllPath,
-            string compileServerIP, int compileServerPort, string runtimeDefinesPath)
+            bool remoteIsEditor, string ip, int port, string compileServerIP, int compileServerPort)
         {
             var python = EnsureSupportedPython();
             if (string.IsNullOrEmpty(python))
@@ -56,17 +55,6 @@ namespace Zh1Zh1.CSharpConsole.Editor.EditorTools
             {
                 pyArgs += " --editor";
             }
-
-            if (!string.IsNullOrEmpty(runtimeDllPath))
-            {
-                pyArgs += $" --runtime-dll-path {Q(runtimeDllPath)}";
-            }
-
-            if (!string.IsNullOrEmpty(runtimeDefinesPath))
-            {
-                pyArgs += $" --runtime-defines {Q(runtimeDefinesPath)}";
-            }
-
 
             // 优先用 wt.exe 让 Windows Terminal 托管 REPL（规避 prompt_toolkit 在部分 ConPTY 下的
             // NoConsoleScreenBufferError 闪退）；wt 不存在时回退直连 python。

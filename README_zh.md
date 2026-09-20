@@ -162,22 +162,13 @@ python "Editor/ExternalTool~/console-client/csharp_repl.py" \
 
 需要 Python 3.7+。Python 依赖（`requests`、`prompt_toolkit`、`Pygments`）在首次启动时自动安装。
 
-### 远程 Runtime — 可选设置
-
-通过 **Console > RemoteC#Console** 连接 Runtime Player 时，有两个可选设置可以覆盖提交所依据的编译环境。通常两项都留空：Editor 会使用为该 Player 构建登记的编译集（见[编译集对齐](#编译集对齐)）。
-
-| 设置 | 说明 |
-|------|------|
-| **Runtime Dll Path** | 一个程序集目录，其中的 DLL 替换编译器原本使用的同名程序集；设置后优先于已登记的编译集。用于构建之外的代码，例如热更新程序集：把该构建的 `CSharpConsoleCompileSet.zip` 解压，替换其中热更新过的 DLL，这样构建的其余程序集和宏定义仍然生效。 |
-| **Runtime Defines File** | `.txt` 文件，列出预处理器宏定义，每行一个或分号分隔（如 `UNITY_ANDROID;IL2CPP;DEVELOPMENT_BUILD`）。对照构建导出的编译集编译时不生效，此时使用编译集自带的、该构建编译时的宏定义。 |
-
-两项设置持久化在 `EditorPrefs` 中，仅在 **Remote Is Editor** 未勾选时生效。
-
 ### 编译集对齐
+
+通过 **Console > RemoteC#Console** 连接时，填写编译服务端和 Player 地址即可。Editor 使用为该 Player 构建登记的编译集，连接窗口不再单独配置 DLL 和宏定义路径。
 
 Runtime 提交在 Editor 中编译、在 Player 中运行。每次 Player 构建都会在产物旁生成 `CSharpConsoleCompileSet.zip`，其中包含该构建实际打入的程序集、编译时使用的宏定义，以及构建 GUID。对照这份编译集编译后，调用被裁剪 API 的代码会直接报编译错误并给出行号，`#if` 也会与 Player 端走同一个分支。
 
-带 `build-guid.txt` 的目录被视为编译和补全所用的完整引用集合，不会额外加入 Editor 专用程序集；通过 **Runtime Dll Path** 指定解压后的构建编译集时同样适用。空集合或无法读取的 DLL 会明确报错。不含构建 GUID 的普通 DLL 目录仍按上文所述替换同名程序集。导出的 `mscorlib.dll` 使用目标平台未裁剪的 BCL，以支持 Roslyn 脚本编译，因此对齐不能提前发现所有 BCL 成员裁剪造成的运行错误。
+带 `build-guid.txt` 的目录被视为编译和补全所用的完整引用集合，不会额外加入 Editor 专用程序集。空集合或无法读取的 DLL 会明确报错。为兼容已有客户端，REPL 的 `--runtime-dll-path` 和 `--runtime-defines` 参数仍可使用；不含构建 GUID 的普通 DLL 目录会替换同名程序集。导出的 `mscorlib.dll` 使用目标平台未裁剪的 BCL，以支持 Roslyn 脚本编译，因此对齐不能提前发现所有 BCL 成员裁剪造成的运行错误。
 
 Editor 按 Player 构建做决定。某个构建第一次收到 runtime 提交而 Editor 尚无决定时，会以 `[REPL ALIGNMENT REQUIRED]` 拒绝，回答一次即可：
 
@@ -188,7 +179,7 @@ Editor 按 Player 构建做决定。某个构建第一次收到 runtime 提交�
 
 决定由 Editor 按 Player 的构建 GUID 保存，之后针对该构建的所有提交（无论来自本 REPL 还是其他客户端）都直接沿用，不再询问。随时可以再次执行 `/compileset` 换一个 zip，或在对齐与跳过之间切换。Player 换成新构建后会重新询问。与运行中 Player 不属于同一构建的 zip 会被拒绝登记。决定与已登记的编译集保存在工程的 `Library/CSharpConsole/CompileSets/` 下，Editor 重启后仍然有效；删除 `Library/` 会清空它们，届时 Editor 会重新询问。
 
-> 在此功能之前构建的 Player 不上报构建 GUID，按原方式编译。对齐描述的是打包时的构建：之后通过热更新替换的代码不会反映在编译集中，这种情况请使用上文的 **Runtime Dll Path**。
+> 在此功能之前构建的 Player 不上报构建 GUID，按原方式编译。热更新后，可解压该构建的 zip、替换更新过的 DLL，保留压缩包根目录的 `build-guid.txt` 和 `runtime-defines.txt`，重新打包并通过 `/compileset` 登记。该更新对使用此构建的所有会话生效。
 
 ### 快捷键
 

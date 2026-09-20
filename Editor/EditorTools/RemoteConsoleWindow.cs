@@ -11,18 +11,14 @@ namespace Zh1Zh1.CSharpConsole.Editor.EditorTools
         public bool RemoteIsEditor;
         public string IP;
         public int Port;
-        public string RuntimeDllPath;
         public string CompileServerIP;
         public int CompileServerPort;
-        public string RuntimeDefinesPath;
     }
 
     public sealed class RemoteConsoleWindow : EditorWindow
     {
-        private readonly static string s_RuntimeDLLPathKey = $"{nameof(RemoteConsoleWindow)}_RUNTIME_DLL_PATH_KEY";
         private readonly static string s_CompileServerIPKey = $"{nameof(RemoteConsoleWindow)}_COMPILE_SERVER_IP_KEY";
         private readonly static string s_CompileServerPortKey = $"{nameof(RemoteConsoleWindow)}_COMPILE_SERVER_PORT_KEY";
-        private readonly static string s_RuntimeDefinesPathKey = $"{nameof(RemoteConsoleWindow)}_RUNTIME_DEFINES_PATH_KEY";
         private readonly static string s_IPHistoryCountKey = $"{nameof(RemoteConsoleWindow)}_IP_HISTORY_COUNT";
         private readonly static string s_IPHistoryItemKey = $"{nameof(RemoteConsoleWindow)}_IP_HISTORY_";
         private readonly static string s_CompileIPHistoryCountKey = $"{nameof(RemoteConsoleWindow)}_COMPILE_IP_HISTORY_COUNT";
@@ -34,8 +30,6 @@ namespace Zh1Zh1.CSharpConsole.Editor.EditorTools
         public int CompileServerPort = ConsoleHttpService.EDITOR_PORT;
         public string IPAddress = "127.0.0.1";
         public bool RemoteIsEditor;
-        public string RuntimeDllPath;
-        public string RuntimeDefinesPath;
 
         private string m_EditorPort;
         private string m_PlayerPort;
@@ -48,16 +42,14 @@ namespace Zh1Zh1.CSharpConsole.Editor.EditorTools
         public static async Task<CSharpIPPort> ShowWindow(int editorPort, int playerPort)
         {
             var w = GetWindow<RemoteConsoleWindow>("C# Console Connection");
-            w.minSize = new Vector2(600, 300);
-            w.maxSize = new Vector2(600, 300);
+            w.minSize = new Vector2(600, 240);
+            w.maxSize = new Vector2(600, 240);
             w.m_Task = new TaskCompletionSource<CSharpIPPort>();
             w.m_EditorPort = editorPort.ToString();
             w.m_PlayerPort = playerPort.ToString();
             w.RemoteIsEditor = false;
             w.m_PrevRemoteIsEditor = false;
             w.m_Port = playerPort.ToString();
-            w.RuntimeDllPath = EditorPrefs.GetString(s_RuntimeDLLPathKey, "");
-            w.RuntimeDefinesPath = EditorPrefs.GetString(s_RuntimeDefinesPathKey, "");
             w.CompileServerIP = EditorPrefs.GetString(s_CompileServerIPKey, "127.0.0.1");
             w.CompileServerPort = EditorPrefs.GetInt(s_CompileServerPortKey, ConsoleHttpService.EDITOR_PORT);
             w.IPAddress = EditorPrefs.GetString(s_IPHistoryItemKey + "0", "127.0.0.1");
@@ -111,9 +103,6 @@ namespace Zh1Zh1.CSharpConsole.Editor.EditorTools
             EditorGUILayout.Space(4);
             DrawRuntimeClientGroup();
             EditorGUILayout.Space(4);
-
-            if (!RemoteIsEditor)
-                DrawOptionalSettingsGroup();
 
             GUILayout.FlexibleSpace();
             DrawConnectButton();
@@ -191,44 +180,6 @@ namespace Zh1Zh1.CSharpConsole.Editor.EditorTools
             }
         }
 
-        private void DrawOptionalSettingsGroup()
-        {
-            EditorGUILayout.LabelField("Runtime Client (optional settings, leave empty to use defaults)", EditorStyles.boldLabel);
-            using (new EditorGUI.IndentLevelScope())
-            {
-                DrawFolderPathField("Runtime Dll Path", ref RuntimeDllPath);
-                DrawFilePathField("Runtime Defines File", ref RuntimeDefinesPath, "txt");
-            }
-        }
-
-        private static void DrawFolderPathField(string label, ref string path)
-        {
-            DrawBrowsePathField(label, ref path, (l, p) => EditorUtility.OpenFolderPanel(l, p, ""));
-        }
-
-        private static void DrawFilePathField(string label, ref string path, string extension)
-        {
-            DrawBrowsePathField(label, ref path, (l, p) => EditorUtility.OpenFilePanel(l, p, extension));
-        }
-
-        private static void DrawBrowsePathField(string label, ref string path, System.Func<string, string, string> browse)
-        {
-            var rect = EditorGUILayout.GetControlRect();
-            var labelRect = new Rect(rect.x, rect.y, LABEL_WIDTH, rect.height);
-            var fieldRect = new Rect(rect.x + LABEL_WIDTH, rect.y, rect.width - LABEL_WIDTH - 24, rect.height);
-            var btnRect = new Rect(rect.xMax - 22, rect.y, 22, rect.height);
-
-            EditorGUI.LabelField(labelRect, label);
-            path = EditorGUI.TextField(fieldRect, path);
-
-            if (GUI.Button(btnRect, "..."))
-            {
-                string selected = browse(label, path ?? "");
-                if (!string.IsNullOrEmpty(selected))
-                    path = selected;
-            }
-        }
-
         private void DrawConnectButton()
         {
             using (new EditorGUILayout.HorizontalScope())
@@ -266,8 +217,6 @@ namespace Zh1Zh1.CSharpConsole.Editor.EditorTools
 
             SaveHistory(IPAddress, s_IPHistoryCountKey, s_IPHistoryItemKey);
             SaveHistory(CompileServerIP, s_CompileIPHistoryCountKey, s_CompileIPHistoryItemKey);
-            EditorPrefs.SetString(s_RuntimeDLLPathKey, RuntimeDllPath ?? "");
-            EditorPrefs.SetString(s_RuntimeDefinesPathKey, RuntimeDefinesPath ?? "");
             EditorPrefs.SetString(s_CompileServerIPKey, CompileServerIP);
             EditorPrefs.SetInt(s_CompileServerPortKey, CompileServerPort);
             ConsoleLog.Info($"Remote console configured: RuntimeClient={IPAddress}:{port}, CompileServer={CompileServerIP}:{CompileServerPort}");
@@ -276,10 +225,8 @@ namespace Zh1Zh1.CSharpConsole.Editor.EditorTools
                 RemoteIsEditor = RemoteIsEditor,
                 IP = IPAddress,
                 Port = port,
-                RuntimeDllPath = RemoteIsEditor ? "" : (RuntimeDllPath ?? ""),
                 CompileServerIP = CompileServerIP,
-                CompileServerPort = CompileServerPort,
-                RuntimeDefinesPath = RemoteIsEditor ? "" : (RuntimeDefinesPath ?? "")
+                CompileServerPort = CompileServerPort
             });
             Close();
         }
