@@ -63,6 +63,11 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
 
             try
             {
+                if (!CSharpConsoleSettings.Load().exportCompileSetAfterBuild)
+                {
+                    return;
+                }
+
                 var projectRoot = Directory.GetParent(Application.dataPath).FullName;
                 var artifacts = Path.Combine(projectRoot, "Library/Bee/artifacts");
                 var engineDirectory = BuildPipeline.GetPlaybackEngineDirectory(report.summary.platform, report.summary.options);

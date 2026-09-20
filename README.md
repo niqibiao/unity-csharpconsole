@@ -167,7 +167,9 @@ Python 3.7+ is required. Python dependencies (`requests`, `prompt_toolkit`, `Pyg
 
 When connecting via **Console > RemoteC#Console**, enter the compile server and Player addresses. The Editor uses the compile set registered for that Player's build; separate DLL and define paths are not needed in the connection window.
 
-Runtime submissions are compiled in the Editor but run in the Player. Every Player build writes `CSharpConsoleCompileSet.zip` beside its output: the assemblies it shipped, the symbols it was compiled with, and its build GUID. Compiling against that set turns calls to stripped APIs into compile errors with line numbers, and makes `#if` take the same branch as in the Player.
+Runtime submissions are compiled in the Editor but run in the Player. By default, every Player build writes `CSharpConsoleCompileSet.zip` beside its output: the assemblies it shipped, the symbols it was compiled with, and its build GUID. Compiling against that set turns calls to stripped APIs into compile errors with line numbers, and makes `#if` take the same branch as in the Player.
+
+Toggle automatic export in **Edit > Project Settings > C# Console > Export Compile Set After Build**. This project setting is stored as `exportCompileSetAfterBuild` in `ProjectSettings/CSharpConsoleSettings.json` and also applies to batch builds. Disabling it does not delete existing compile sets.
 
 A directory carrying `build-guid.txt` is treated as a complete reference set for compilation and completion; Editor-only assemblies are not added. An empty set or an unreadable DLL reports an error. For existing clients, the `--runtime-dll-path` and `--runtime-defines` REPL arguments remain supported; plain DLL directories without a build GUID replace same-named references. The exported `mscorlib.dll` uses the target's unstripped BCL to support Roslyn script compilation, so alignment cannot detect every stripped BCL member before execution.
 

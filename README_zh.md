@@ -166,7 +166,9 @@ python "Editor/ExternalTool~/console-client/csharp_repl.py" \
 
 通过 **Console > RemoteC#Console** 连接时，填写编译服务端和 Player 地址即可。Editor 使用为该 Player 构建登记的编译集，连接窗口不再单独配置 DLL 和宏定义路径。
 
-Runtime 提交在 Editor 中编译、在 Player 中运行。每次 Player 构建都会在产物旁生成 `CSharpConsoleCompileSet.zip`，其中包含该构建实际打入的程序集、编译时使用的宏定义，以及构建 GUID。对照这份编译集编译后，调用被裁剪 API 的代码会直接报编译错误并给出行号，`#if` 也会与 Player 端走同一个分支。
+Runtime 提交在 Editor 中编译、在 Player 中运行。默认每次 Player 构建都会在产物旁生成 `CSharpConsoleCompileSet.zip`，其中包含该构建实际打入的程序集、编译时使用的宏定义，以及构建 GUID。对照这份编译集编译后，调用被裁剪 API 的代码会直接报编译错误并给出行号，`#if` 也会与 Player 端走同一个分支。
+
+在 **Edit > Project Settings > C# Console > Export Compile Set After Build** 切换自动导出。该工程级设置保存在 `ProjectSettings/CSharpConsoleSettings.json` 的 `exportCompileSetAfterBuild` 字段中，对批处理构建同样生效。关闭不会删除已有编译集。
 
 带 `build-guid.txt` 的目录被视为编译和补全所用的完整引用集合，不会额外加入 Editor 专用程序集。空集合或无法读取的 DLL 会明确报错。为兼容已有客户端，REPL 的 `--runtime-dll-path` 和 `--runtime-defines` 参数仍可使用；不含构建 GUID 的普通 DLL 目录会替换同名程序集。导出的 `mscorlib.dll` 使用目标平台未裁剪的 BCL，以支持 Roslyn 脚本编译，因此对齐不能提前发现所有 BCL 成员裁剪造成的运行错误。
 
