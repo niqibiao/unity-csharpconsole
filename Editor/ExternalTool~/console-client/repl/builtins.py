@@ -225,11 +225,16 @@ def register_default_builtins(registry, state):
         client.get_default_using_prefix(force_reload=True)
         print((f"reloadUsing: \n{client._DEFAULT_USING_PREFIX_CACHE}\n"))
         client.get_default_define_line(force_reload=True)
-        define_display = client._DEFAULT_DEFINE_CACHE if client._DEFAULT_DEFINE_CACHE else "Use editor default defines"
+        define_display = client._DEFAULT_DEFINE_CACHE or (
+            "Resolved by the compile server (build defines when aligned)."
+            if config.runtime_mode else "Use editor default defines"
+        )
         define_source = ""
         if client._DEFAULT_DEFINE_CACHE:
             define_source = " (from runtime-defines.txt)" if config.runtime_mode else " (from Defines.txt)"
         print((f"reloadDefine{define_source}: \n{define_display}\n"))
+        if config.runtime_mode and client._DEFAULT_DEFINE_CACHE:
+            print("For aligned builds, the compile server uses the build's defines instead.\n")
 
     @registry.decorator("/reset", "Reset the console environment")
     def reset_console_environment(message):

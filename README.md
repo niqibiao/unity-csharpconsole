@@ -178,6 +178,8 @@ Both settings are persisted in `EditorPrefs` and only apply when **Remote Is Edi
 
 Runtime submissions are compiled in the Editor but run in the Player. Every Player build writes `CSharpConsoleCompileSet.zip` beside its output: the assemblies it shipped, the symbols it was compiled with, and its build GUID. Compiling against that set turns calls to stripped APIs into compile errors with line numbers, and makes `#if` take the same branch as in the Player.
 
+A directory carrying `build-guid.txt` is treated as a complete reference set for compilation and completion; Editor-only assemblies are not added. This also applies when **Runtime Dll Path** points to an extracted build set. An empty set or an unreadable DLL reports an error. Plain DLL directories without a build GUID retain the same-name replacement behavior described above. The exported `mscorlib.dll` uses the target's unstripped BCL to support Roslyn script compilation, so alignment cannot detect every stripped BCL member before execution.
+
 The Editor decides per Player build. The first runtime submission for a build it has no decision for is refused with `[REPL ALIGNMENT REQUIRED]`; answer it once:
 
 ```text

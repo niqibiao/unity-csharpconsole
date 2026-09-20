@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
+from unittest.mock import patch
 
 SCRIPT_ROOT = os.path.dirname(os.path.abspath(__file__))
 CONSOLE_CLIENT_ROOT = os.path.dirname(os.path.dirname(SCRIPT_ROOT))
@@ -321,6 +322,28 @@ class FakeChangeBuffer:
 
 
 class BuiltinCommandFeedbackTests(unittest.TestCase):
+    def test_reset_describes_define_resolution_for_the_active_mode(self):
+        for runtime, defines, expected in (
+            (False, "", "Use editor default defines"),
+            (True, "", "Resolved by the compile server (build defines when aligned)."),
+            (True, "CUSTOM_DEFINE", "the compile server uses the build's defines instead"),
+        ):
+            with self.subTest(runtime=runtime, defines=defines), \
+                    patch.object(config, "runtime_mode", runtime), \
+                    patch.multiple(client, reset_cached_config=lambda: None,
+                                   get_default_using_prefix=lambda **_: "",
+                                   get_default_define_line=lambda **_: defines,
+                                   _DEFAULT_USING_PREFIX_CACHE="", _DEFAULT_DEFINE_CACHE=defines):
+                registry = self.create_builtin_registry()
+                result = repl_builtins.process_builtin_cmd("/reset", registry.commands)["result"]
+                self.assertTrue(result["ok"])
+                text = result["data"]["text"]
+                self.assertIn(expected, text)
+                if runtime:
+                    self.assertNotIn("Use editor default defines", text)
+                if defines:
+                    self.assertIn(defines, text)
+
     def create_builtin_registry(self):
         registry = repl_builtins.BuiltinRegistry()
         repl_builtins.register_default_builtins(

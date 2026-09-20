@@ -31,6 +31,7 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
         private readonly bool m_CacheReferences;
         private readonly string m_DefaultDefines;
         private readonly bool m_IgnoreRequestDefines;
+        private readonly bool m_UseOnlyRuntimeReferences;
         private readonly string m_RuntimeDllPath;
 
         private int m_SubmissionId;
@@ -48,11 +49,13 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
         private readonly HashSet<string> m_CachedUsingLines = new HashSet<string>(StringComparer.Ordinal);
 
         /// <param name="ignoreRequestDefines">Use <paramref name="defaultDefines"/> even when a request carries defines of its own.</param>
-        public BaseREPLCompiler(string assemblyPrefix, string defaultDefines, bool cacheReferences, string runtimeDllPath = null, bool ignoreRequestDefines = false)
+        /// <param name="useOnlyRuntimeReferences">Treat <paramref name="runtimeDllPath"/> as the complete reference set, without adding Editor assemblies.</param>
+        public BaseREPLCompiler(string assemblyPrefix, string defaultDefines, bool cacheReferences, string runtimeDllPath = null, bool ignoreRequestDefines = false, bool useOnlyRuntimeReferences = false)
         {
             m_AssemblyPrefix = assemblyPrefix;
             m_DefaultDefines = defaultDefines ?? "";
             m_IgnoreRequestDefines = ignoreRequestDefines;
+            m_UseOnlyRuntimeReferences = useOnlyRuntimeReferences;
             m_CacheReferences = cacheReferences;
             m_RuntimeDllPath = runtimeDllPath;
             ConsoleLog.Debug($"BaseREPLCompiler created: assemblyPrefix={m_AssemblyPrefix}, defaultDefines={m_DefaultDefines}, cacheReferences={m_CacheReferences}, runtimeDllPath={m_RuntimeDllPath}");
@@ -367,6 +370,38 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
         {
             if (m_CacheReferences && m_CachedReferences != null)
             {
+                return m_CachedReferences;
+            }
+
+            if (m_UseOnlyRuntimeReferences)
+            {
+                // A build's set is complete. Falling back to the Editor would make
+                // missing player APIs compile successfully and fail only at execution.
+                if (string.IsNullOrEmpty(m_RuntimeDllPath) || !Directory.Exists(m_RuntimeDllPath))
+                {
+                    throw new DirectoryNotFoundException($"Compile-set directory does not exist: {m_RuntimeDllPath}");
+                }
+
+                var dlls = Directory.GetFiles(m_RuntimeDllPath, "*.dll", SearchOption.AllDirectories);
+                if (dlls.Length == 0)
+                {
+                    throw new InvalidOperationException($"Compile set contains no assemblies: {m_RuntimeDllPath}");
+                }
+
+                var references = new List<MetadataReference>();
+                foreach (var dll in dlls)
+                {
+                    try
+                    {
+                        references.Add(MetadataReference.CreateFromFile(dll));
+                    }
+                    catch (Exception e)
+                    {
+                        throw new InvalidOperationException($"Could not read compile-set assembly '{dll}': {e.Message}", e);
+                    }
+                }
+
+                m_CachedReferences = references.ToArray();
                 return m_CachedReferences;
             }
 

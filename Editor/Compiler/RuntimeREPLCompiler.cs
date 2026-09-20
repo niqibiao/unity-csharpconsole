@@ -14,8 +14,13 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
         /// #if in a submission takes its #else branch.
         /// </summary>
         public RuntimeREPLCompiler(string runtimeDllPath)
+            : this(runtimeDllPath, CompileSetStore.ReadBuildGuid(runtimeDllPath) != null)
+        {
+        }
+
+        private RuntimeREPLCompiler(string runtimeDllPath, bool isBuildCompileSet)
             : base("RuntimeScript_", CompileSetStore.ReadDefines(runtimeDllPath) ?? "", cacheReferences: true, runtimeDllPath: runtimeDllPath,
-                ignoreRequestDefines: CompileSetStore.ReadBuildGuid(runtimeDllPath) != null)
+                ignoreRequestDefines: isBuildCompileSet, useOnlyRuntimeReferences: isBuildCompileSet)
         {
             ConsoleLog.Debug($"RuntimeREPLCompiler created with runtimeDllPath={runtimeDllPath}");
         }

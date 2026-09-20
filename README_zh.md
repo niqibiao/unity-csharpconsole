@@ -177,6 +177,8 @@ python "Editor/ExternalTool~/console-client/csharp_repl.py" \
 
 Runtime 提交在 Editor 中编译、在 Player 中运行。每次 Player 构建都会在产物旁生成 `CSharpConsoleCompileSet.zip`，其中包含该构建实际打入的程序集、编译时使用的宏定义，以及构建 GUID。对照这份编译集编译后，调用被裁剪 API 的代码会直接报编译错误并给出行号，`#if` 也会与 Player 端走同一个分支。
 
+带 `build-guid.txt` 的目录被视为编译和补全所用的完整引用集合，不会额外加入 Editor 专用程序集；通过 **Runtime Dll Path** 指定解压后的构建编译集时同样适用。空集合或无法读取的 DLL 会明确报错。不含构建 GUID 的普通 DLL 目录仍按上文所述替换同名程序集。导出的 `mscorlib.dll` 使用目标平台未裁剪的 BCL，以支持 Roslyn 脚本编译，因此对齐不能提前发现所有 BCL 成员裁剪造成的运行错误。
+
 Editor 按 Player 构建做决定。某个构建第一次收到 runtime 提交而 Editor 尚无决定时，会以 `[REPL ALIGNMENT REQUIRED]` 拒绝，回答一次即可：
 
 ```text
