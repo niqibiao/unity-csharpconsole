@@ -1754,33 +1754,16 @@ class PromptStyleTests(unittest.TestCase):
         self.assertIn("transcript.error.transport_error.prefix", style_rules)
         self.assertIn("transcript.error.command_error.prefix", style_rules)
 
-        def _bg(style):
-            for token in style.split():
-                if token.startswith("bg:"):
-                    return token
-            return None
+        for kind in ("compile_error", "runtime_error", "builtin_error", "timeout_error",
+                     "connection_error", "transport_error", "command_error"):
+            for part in ("prefix", "text"):
+                with self.subTest(kind=kind, part=part):
+                    tokens = style_rules[f"transcript.error.{kind}.{part}"].split()
+                    self.assertIn("ansired", tokens)
+                    self.assertFalse(any(token.startswith("bg:") for token in tokens))
 
-        compile_bg = _bg(style_rules["transcript.error.compile_error.prefix"])
-        action_bg = _bg(style_rules["transcript.error.action_required.text"])
-        timeout_bg = _bg(style_rules["transcript.error.timeout_error.prefix"])
-        connection_bg = _bg(style_rules["transcript.error.connection_error.prefix"])
-        transport_bg = _bg(style_rules["transcript.error.transport_error.prefix"])
-        command_bg = _bg(style_rules["transcript.error.command_error.prefix"])
-
-        self.assertIsNotNone(compile_bg)
-        self.assertIsNotNone(action_bg)
-        self.assertNotEqual(action_bg, compile_bg)
+        self.assertIn("bg:ansiyellow", style_rules["transcript.error.action_required.text"].split())
         self.assertIn("bold", style_rules["transcript.error.action_required.text"].split())
-        self.assertIsNotNone(timeout_bg)
-        self.assertIsNotNone(connection_bg)
-        self.assertIsNotNone(transport_bg)
-        self.assertIsNotNone(command_bg)
-
-        self.assertEqual(
-            len({compile_bg, timeout_bg, connection_bg, transport_bg, command_bg}),
-            5,
-            "Each transcript error category should have a distinct background style category",
-        )
 
 
 class TranscriptRenderingHelpersTests(unittest.TestCase):

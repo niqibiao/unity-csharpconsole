@@ -23,6 +23,7 @@ from prompt_toolkit.layout.containers import ConditionalContainer, Float, FloatC
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.lexers import PygmentsLexer
+from prompt_toolkit.output import ColorDepth
 from prompt_toolkit.shortcuts import set_title
 from prompt_toolkit.styles import DynamicStyle, Style
 from prompt_toolkit.widgets import SearchToolbar
@@ -524,6 +525,9 @@ class ReplApplicationShell:
             layout=layout,
             key_bindings=merge_key_bindings([bindings, default_mouse_bindings, load_emacs_search_bindings()]),
             style=self.style,
+            # Unity can inherit NO_COLOR from build tooling. The interactive UI
+            # owns its palette so error colors and /theme remain visible.
+            color_depth=ColorDepth.TRUE_COLOR,
             clipboard=_build_clipboard(),
             full_screen=True,
             mouse_support=True,

@@ -4,6 +4,7 @@ import os
 import sys
 import unittest
 from contextlib import redirect_stdout
+from unittest.mock import patch
 
 SCRIPT_ROOT = os.path.dirname(os.path.abspath(__file__))
 CONSOLE_CLIENT_ROOT = os.path.dirname(os.path.dirname(SCRIPT_ROOT))
@@ -29,6 +30,10 @@ from prompt_toolkit.document import Document
 from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType
 from prompt_toolkit.output import DummyOutput
+from prompt_toolkit.output.color_depth import ColorDepth
+from prompt_toolkit.output.vt100 import Vt100_Output
+from prompt_toolkit.renderer import print_formatted_text
+from prompt_toolkit.styles import DynamicStyle
 
 import csharp_repl_core as repl
 from repl import builtins, output
@@ -70,6 +75,36 @@ class _SizedDummyOutput(DummyOutput):
 
 
 class ReplApplicationShellViewportWiringTests(unittest.TestCase):
+    def test_interactive_palette_survives_inherited_no_color(self):
+        stream = io.StringIO()
+        with patch.dict(os.environ, {"NO_COLOR": "1"}):
+            terminal_output = Vt100_Output(
+                stream, lambda: Size(rows=24, columns=100),
+                default_color_depth=ColorDepth.from_env(), enable_cpr=False,
+            )
+            with create_pipe_input() as pipe_input:
+                with create_app_session(input=pipe_input, output=terminal_output):
+                    shell = repl.ReplApplicationShell(
+                        style=DynamicStyle(repl.theme_manager.active_style), lexer=None,
+                    )
+                    print_formatted_text(
+                        shell.app.output, [("class:footer.session.value", "runtime")],
+                        shell.style, color_depth=shell.app.color_depth,
+                    )
+                    for kind, message in (("compile_error", "Compile failed: CS0200"),
+                                          ("runtime_error", "Execution error: MethodNotFind")):
+                        entry = output.build_result_entry({
+                            "ok": False, "stage": "execute", "type": kind, "summary": message,
+                        }, _extract_text_from_data)
+                        print_formatted_text(
+                            shell.app.output, shell.transcript_control._render_entry_fragments(entry),
+                            shell.style, color_depth=shell.app.color_depth,
+                        )
+            self.assertEqual(os.environ.get("NO_COLOR"), "1")
+        self.assertRegex(stream.getvalue(), r"\x1b\[[0-9;]*\b36(?:;[0-9]+)*mruntime")
+        for message in ("Compile failed: CS0200", "Execution error: MethodNotFind"):
+            self.assertRegex(stream.getvalue(), r"\x1b\[[0-9;]*\b31(?:;[0-9]+)*m" + message)
+
     def _create_session(self):
         previous_session = repl.session
         previous_application = repl.Application
@@ -1242,6 +1277,15 @@ class TranscriptStateTests(unittest.TestCase):
 
 
 class ResultClassificationTests(unittest.TestCase):
+    def test_runtime_error_type_takes_precedence_over_request_stage(self):
+        for stage in ("execute", "compile"):
+            with self.subTest(stage=stage):
+                entry = output.build_result_entry({
+                    "ok": False, "stage": stage, "type": "runtime_error",
+                    "summary": "[C#Console] Execution error: MethodNotFind UnityEngine.Application::set_targetFrameRate",
+                }, _extract_text_from_data)
+                self.assertEqual(entry.error_kind, "runtime_error")
+
     def test_build_result_entry_classifies_compile_error(self):
         result = {
             "ok": False,

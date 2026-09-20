@@ -16,10 +16,14 @@ def classify_error_kind(result):
 
     if result_type == "builtin_error" or stage == "builtin":
         return "builtin_error"
-    if result_type == "compile_error" or stage == "compile":
+    if result_type == "compile_error":
         return "compile_error"
     if "timeout" in summary or "timed out" in summary:
         return "timeout_error"
+    if result_type == "runtime_error":
+        return "runtime_error"
+    if stage == "compile":
+        return "compile_error"
     if stage == "command" or result_type == "command_error":
         return "command_error"
     if any(token in summary for token in ("actively refused", "failed to establish a new connection", "connection refused", "connection reset", "name or service not known", "nodename nor servname", "temporarily unavailable")):
