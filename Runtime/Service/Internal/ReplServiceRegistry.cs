@@ -11,11 +11,17 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
         private readonly ConcurrentDictionary<(string uuid, string path), IREPLExecutor> _executors = new ConcurrentDictionary<(string uuid, string path), IREPLExecutor>();
         private readonly ConcurrentDictionary<(string uuid, string path), IREPLCompiler> _compilers = new ConcurrentDictionary<(string uuid, string path), IREPLCompiler>();
         private readonly ConcurrentDictionary<string, double> _lastAccessTimes = new ConcurrentDictionary<string, double>();
+        private readonly ConcurrentDictionary<string, string> _runtimeCompileSets = new ConcurrentDictionary<string, string>();
         private const double DEFAULT_IDLE_TIMEOUT_SECONDS = 21600.0; // 6 hours
 
+        /// <summary>
+        /// Keyed under a null path, which no runtime compile set has: a completion made
+        /// before a runtime session's first submission lands here, and must not become the
+        /// compiler that submission gets when it compiles against no set.
+        /// </summary>
         public IREPLCompiler FetchEditorREPLCompiler(string uuid, Func<IREPLCompiler> generator)
         {
-            var key = (uuid ?? "", "");
+            var key = (uuid ?? "", (string)null);
             var compiler = _compilers.GetOrAdd(key, _ => generator.Invoke());
             TouchSession(uuid ?? "");
             return compiler;
@@ -37,9 +43,44 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
             return compiler;
         }
 
-        public bool RemoveCompilerByKey((string uuid, string path) compilerKey)
+        /// <summary>
+        /// Records the compile set a runtime session's submissions are compiled against,
+        /// which the editor resolves itself when the client names none -- so a completion
+        /// for the session, which names none either, can use the same one. A session's
+        /// submissions only chain within one set, so when the set changes, the compilers
+        /// the session had under any other set -- or the editor compiler a completion made
+        /// before its first submission -- are dropped rather than left holding their
+        /// references.
+        /// </summary>
+        public void UseRuntimeCompileSet(string uuid, string compileSetPath)
         {
-            return _compilers.TryRemove(compilerKey, out _);
+            var sessionId = uuid ?? "";
+            var path = compileSetPath ?? "";
+            if (_runtimeCompileSets.TryGetValue(sessionId, out var current) && current == path)
+            {
+                return;
+            }
+
+            _runtimeCompileSets[sessionId] = path;
+            foreach (var key in _compilers.Keys)
+            {
+                if (string.Equals(key.uuid, sessionId, StringComparison.Ordinal)
+                    && !string.Equals(key.path, path, StringComparison.Ordinal))
+                {
+                    _compilers.TryRemove(key, out _);
+                }
+            }
+        }
+
+        /// <summary>The compile set the session's last runtime submission used, or null when it has made none.</summary>
+        public string FindRuntimeCompileSet(string uuid)
+        {
+            return _runtimeCompileSets.TryGetValue(uuid ?? "", out var path) ? path : null;
+        }
+
+        public bool RemoveEditorCompiler(string sessionId)
+        {
+            return _compilers.TryRemove((sessionId ?? "", null), out _);
         }
 
         public bool RemoveExecutor(string sessionId)
@@ -72,6 +113,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
             }
 
             _lastAccessTimes.TryRemove(sessionId, out _);
+            _runtimeCompileSets.TryRemove(sessionId, out _);
             return removedAny;
         }
 
@@ -133,6 +175,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
             _executors.Clear();
             _compilers.Clear();
             _lastAccessTimes.Clear();
+            _runtimeCompileSets.Clear();
         }
 
         public int EvictIdleSessions(double idleTimeoutSeconds = DEFAULT_IDLE_TIMEOUT_SECONDS)

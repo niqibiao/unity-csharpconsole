@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
@@ -16,8 +17,10 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
     /// of it is ambiguous -- a project that has built several targets, or built again
     /// since, leaves several sets of artifacts with nothing in them saying which player
     /// is the one currently running, and the editor's own view reports the target
-    /// selected now rather than the one built. Inside the build callback there is no
-    /// ambiguity: the newest artifacts are the ones just produced.
+    /// selected now rather than the one built. Inside the build callback the report
+    /// says which target and options were just built, and that picks them out.
+    /// Recency alone does not: Bee rewrites a command-line file only when its content
+    /// changes, so rebuilding a target unchanged leaves another target's files newer.
     /// </summary>
     internal class PlayerBuildRecord
     {
@@ -28,8 +31,8 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
         public string strippedAssembliesPath;
 
         /// <summary>
-        /// The editor's unstripped mscorlib for the profile this build ran, resolved
-        /// here because it depends on the target and backend of <em>this</em> build.
+        /// The editor's unstripped mscorlib for the profile this build ran, as the linker
+        /// was given it -- the profile depends on the target and backend of <em>this</em> build.
         /// </summary>
         public string bclMscorlibPath;
 
@@ -61,14 +64,33 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
             try
             {
                 var projectRoot = Directory.GetParent(Application.dataPath).FullName;
-                var target = report.summary.platform;
+                var artifacts = Path.Combine(projectRoot, "Library/Bee/artifacts");
+                var engineDirectory = BuildPipeline.GetPlaybackEngineDirectory(report.summary.platform, report.summary.options);
+                var namedTarget = report.summary.platformGroup == BuildTargetGroup.Standalone
+                    && report.summary.GetSubtarget<StandaloneBuildSubtarget>() == StandaloneBuildSubtarget.Server
+                    ? NamedBuildTarget.Server : NamedBuildTarget.FromBuildTargetGroup(report.summary.platformGroup);
+                // The same in-build setting Unity's Bee postprocessor uses. A support
+                // directory alone cannot distinguish cached Mono and IL2CPP arguments.
+                var backend = PlayerSettings.GetScriptingBackend(namedTarget) switch
+                {
+                    ScriptingImplementation.IL2CPP => "Il2Cpp",
+                    ScriptingImplementation.Mono2x => "Mono",
+                    _ => throw new InvalidOperationException("Unsupported scripting backend for compile-set export."),
+                };
+                var (strippedAssembliesPath, bclMscorlibPath, engineAssembly) = ReadLinkerArguments(projectRoot, artifacts, engineDirectory, backend);
+                var development = (report.summary.options & BuildOptions.Development) != 0;
+                var defines = ReadPlayerDefines(artifacts, development, engineAssembly, backend);
+                if (string.IsNullOrEmpty(defines))
+                {
+                    throw new InvalidOperationException("Could not identify the compiler arguments for this player's target and backend.");
+                }
 
                 var record = new PlayerBuildRecord
                 {
                     buildGuid = report.summary.guid.ToString(),
-                    strippedAssembliesPath = FindStrippedAssemblies(projectRoot),
-                    bclMscorlibPath = FindBclMscorlib(target),
-                    defines = ReadPlayerDefines(projectRoot),
+                    strippedAssembliesPath = strippedAssembliesPath,
+                    bclMscorlibPath = bclMscorlibPath,
+                    defines = defines,
                 };
 
                 CompileSetExporter.Export(record, report.summary.outputPath);
@@ -82,37 +104,73 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
         }
 
         /// <summary>
-        /// Under Library/Bee/artifacts rather than in the build output, because an
-        /// IL2CPP build converts these to C++ and ships no managed directory at all.
+        /// The command line Unity handed UnityLinker for this build: where it wrote the
+        /// stripped assemblies, and the unstripped mscorlib of the profile it linked
+        /// against. Both come from the one file, so they describe the same build and need
+        /// no mapping from build target and scripting backend to BCL profile.
+        ///
+        /// Under Library/Bee/artifacts rather than in the build output, because an IL2CPP
+        /// build converts the stripped assemblies to C++ and ships no managed directory.
+        /// Every target built leaves a linker command line there; this build's is the one
+        /// that links engine modules from <paramref name="engineDirectory"/>, the target's
+        /// player support.
         /// </summary>
-        private static string FindStrippedAssemblies(string projectRoot)
+        private static (string strippedAssembliesPath, string bclMscorlibPath, string engineAssembly) ReadLinkerArguments(string projectRoot, string artifacts, string engineDirectory, string expectedBackend)
         {
-            var artifacts = Path.Combine(projectRoot, "Library/Bee/artifacts");
-            if (!Directory.Exists(artifacts))
+            var rspDirectory = Path.Combine(artifacts, "rsp");
+            if (!Directory.Exists(rspDirectory))
             {
-                return null;
+                return (null, null, null);
             }
 
-            string newest = null;
-            var newestTime = DateTime.MinValue;
-            foreach (var program in Directory.GetDirectories(artifacts, "*PlayerBuildProgram"))
+            var engine = string.IsNullOrEmpty(engineDirectory) ? null : engineDirectory.Replace('\\', '/').TrimEnd('/') + "/";
+
+            // Other tools write their command lines here too; the linker's is the one
+            // whose output is the stripped directory.
+            foreach (var rsp in Directory.GetFiles(rspDirectory, "*.rsp").OrderByDescending(path => File.GetLastWriteTimeUtc(path)))
             {
-                var managed = Path.Combine(program, "ManagedStripped");
-                if (!Directory.Exists(managed))
+                string output = null;
+                string mscorlib = null;
+                string engineAssembly = null;
+                string backend = null;
+                var linksThisTarget = engine == null;
+                foreach (Match argument in s_LinkerArgument.Matches(File.ReadAllText(rsp)))
                 {
-                    continue;
+                    var value = argument.Groups[2].Success ? argument.Groups[2].Value : argument.Groups[3].Value;
+                    if (argument.Groups[1].Value == "out")
+                    {
+                        output = value;
+                    }
+                    else if (argument.Groups[1].Value == "dotnetruntime")
+                    {
+                        backend = value;
+                    }
+                    else if (string.Equals(Path.GetFileName(value), "mscorlib.dll", StringComparison.OrdinalIgnoreCase))
+                    {
+                        mscorlib = value;
+                    }
+                    else if (engine != null && value.Replace('\\', '/').StartsWith(engine, StringComparison.OrdinalIgnoreCase))
+                    {
+                        linksThisTarget = true;
+                        if (string.Equals(Path.GetFileName(value), "UnityEngine.CoreModule.dll", StringComparison.OrdinalIgnoreCase))
+                        {
+                            engineAssembly = value;
+                        }
+                    }
                 }
 
-                var stamp = Directory.GetLastWriteTimeUtc(managed);
-                if (stamp > newestTime)
+                if (linksThisTarget && string.Equals(backend, expectedBackend, StringComparison.OrdinalIgnoreCase)
+                    && output != null && Path.GetFileName(output) == "ManagedStripped")
                 {
-                    newestTime = stamp;
-                    newest = managed;
+                    return (Path.GetFullPath(Path.Combine(projectRoot, output)), mscorlib, engineAssembly);
                 }
             }
 
-            return newest;
+            return (null, null, null);
         }
+
+        /// <summary>One <c>--name=value</c> argument, the value quoted or bare.</summary>
+        private static readonly Regex s_LinkerArgument = new Regex("--(out|allowed-assembly|dotnetruntime)=(?:\"([^\"]*)\"|(\\S+))");
 
         /// <summary>
         /// The command line Unity handed Roslyn for this build, which is the only exact
@@ -125,12 +183,13 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
         /// behind asmdefs has none, and any player assembly will do -- they differ only
         /// in the versionDefines each package declares for itself.
         /// </summary>
-        private static string ReadPlayerDefines(string projectRoot)
+        private static string ReadPlayerDefines(string artifacts, bool development, string engineAssembly, string backend)
         {
             const string definePrefix = "-define:";
 
-            var artifacts = Path.Combine(projectRoot, "Library/Bee/artifacts");
-            if (!Directory.Exists(artifacts))
+            var backendDefine = string.Equals(backend, "Il2Cpp", StringComparison.OrdinalIgnoreCase) ? "ENABLE_IL2CPP"
+                : string.Equals(backend, "Mono", StringComparison.OrdinalIgnoreCase) ? "ENABLE_MONO" : null;
+            if (!Directory.Exists(artifacts) || string.IsNullOrEmpty(engineAssembly) || backendDefine == null)
             {
                 return "";
             }
@@ -153,54 +212,29 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
                     continue;
                 }
 
+                // Development and release players are compiled through separate graphs as
+                // well, told apart the same way.
+                if (lines.Contains(definePrefix + "DEVELOPMENT_BUILD") != development)
+                {
+                    continue;
+                }
+
+                // A cached rebuild need not touch its rsp. Match the linker inputs,
+                // not timestamps from another target/backend built more recently.
+                if (!lines.Contains(definePrefix + backendDefine)
+                    || !lines.Any(line => line.StartsWith("-r:", StringComparison.Ordinal)
+                        && string.Equals(line.Substring(3).Trim('"').Replace('\\', '/'),
+                            engineAssembly.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
                 return string.Join(";", lines
                     .Where(line => line.StartsWith(definePrefix, StringComparison.Ordinal))
                     .Select(line => line.Substring(definePrefix.Length)));
             }
 
             return "";
-        }
-
-        private static string FindBclMscorlib(BuildTarget target)
-        {
-            string platform;
-            switch (target)
-            {
-                case BuildTarget.Android:
-                case BuildTarget.StandaloneLinux64:
-                    platform = "linux";
-                    break;
-                case BuildTarget.iOS:
-                case BuildTarget.StandaloneOSX:
-                    platform = "macos";
-                    break;
-                default:
-                    platform = "win32";
-                    break;
-            }
-
-            var named = NamedBuildTarget.FromBuildTargetGroup(BuildPipeline.GetBuildTargetGroup(target));
-            var flavour = PlayerSettings.GetScriptingBackend(named) == ScriptingImplementation.IL2CPP
-                ? "unityaot"
-                : "unityjit";
-
-            var contents = EditorApplication.applicationContentsPath;
-            var candidates = new[]
-            {
-                Path.Combine(contents, $"MonoBleedingEdge/lib/mono/{flavour}-{platform}/mscorlib.dll"),
-                // Older layouts ship a single profile rather than one per platform.
-                Path.Combine(contents, "MonoBleedingEdge/lib/mono/unity/mscorlib.dll"),
-            };
-
-            foreach (var candidate in candidates)
-            {
-                if (File.Exists(candidate))
-                {
-                    return candidate;
-                }
-            }
-
-            return null;
         }
     }
 }

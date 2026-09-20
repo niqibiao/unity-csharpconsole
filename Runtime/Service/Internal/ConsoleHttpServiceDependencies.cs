@@ -13,13 +13,15 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
             Func<HealthResponse> buildHealthResponseSnapshot,
             Func<HttpListenerContext, HttpResponseEnvelope, string, Task> writeEnvelopeResponseAsync,
             Func<string, IREPLCompiler> fetchEditorReplCompiler,
-            Func<string, string, IREPLCompiler> fetchRuntimeReplCompiler)
+            Func<string, string, IREPLCompiler> fetchRuntimeReplCompiler,
+            Func<string, string> findRuntimeCompileSet)
         {
             EnvelopeFactory = envelopeFactory;
             BuildHealthResponseSnapshot = buildHealthResponseSnapshot;
             WriteEnvelopeResponseAsync = writeEnvelopeResponseAsync;
             FetchEditorReplCompiler = fetchEditorReplCompiler;
             FetchRuntimeReplCompiler = fetchRuntimeReplCompiler;
+            FindRuntimeCompileSet = findRuntimeCompileSet;
         }
 
         public HttpEnvelopeFactory EnvelopeFactory { get; }
@@ -31,6 +33,8 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
         public Func<string, IREPLCompiler> FetchEditorReplCompiler { get; }
 
         public Func<string, string, IREPLCompiler> FetchRuntimeReplCompiler { get; }
+
+        public Func<string, string> FindRuntimeCompileSet { get; }
 
         public static async Task<string> ReadRequestBodyAsync(HttpListenerContext context)
         {

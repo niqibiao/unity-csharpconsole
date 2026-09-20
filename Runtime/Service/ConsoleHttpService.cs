@@ -60,7 +60,8 @@ namespace Zh1Zh1.CSharpConsole.Service
                 BuildHealthResponseSnapshot,
                 WriteEnvelopeResponseAsync,
                 sessionId => s_ReplServiceRegistry.FetchEditorREPLCompiler(sessionId, s_EditorREPLCompilerGenerator),
-                (sessionId, runtimeDllPath) => s_ReplServiceRegistry.FetchRuntimeREPLCompiler(sessionId, runtimeDllPath, s_RuntimeREPLCompilerGenerator));
+                (sessionId, runtimeDllPath) => s_ReplServiceRegistry.FetchRuntimeREPLCompiler(sessionId, runtimeDllPath, s_RuntimeREPLCompilerGenerator),
+                s_ReplServiceRegistry.FindRuntimeCompileSet);
             s_HealthEndpointHandler ??= new HealthEndpointHandler(s_Dependencies);
             s_CommandEndpointHandler ??= new CommandEndpointHandler(s_Dependencies);
             s_BatchEndpointHandler ??= new BatchEndpointHandler(s_Dependencies);
@@ -465,7 +466,7 @@ namespace Zh1Zh1.CSharpConsole.Service
                 {
                     if (reset)
                     {
-                        s_ReplServiceRegistry.RemoveCompilerByKey((uuid, ""));
+                        s_ReplServiceRegistry.RemoveEditorCompiler(uuid);
                         s_ReplServiceRegistry.RemoveExecutor(uuid);
                         return "REPL reset";
                     }
@@ -1314,7 +1315,6 @@ namespace Zh1Zh1.CSharpConsole.Service
 
             var result = "";
             string uuid = "";
-            HttpResponseEnvelope refusalEnvelope = null;
 
             try
             {
@@ -1350,33 +1350,29 @@ namespace Zh1Zh1.CSharpConsole.Service
                 {
                     // Resolved before compiling rather than after: the question is what to
                     // compile against, so there is nothing to learn from compiling first.
-                    var (refusal, compileSetPath) = await ResolveRuntimeCompileSet(targetIP, targetPort, runtimeDllPath);
+                    var (refusal, compileSetPath) = await ResolveRuntimeCompileSet(targetIP, targetPort, runtimeDllPath, uuid);
                     if (refusal != null)
                     {
-                        // Typed here, where it is known to be a refusal, rather than left for
-                        // CreateTextEnvelope to recognise: that classifier also reads every
-                        // editor-mode result.
-                        refusalEnvelope = s_EnvelopeFactory.CreateEnvelope(false, "execute", "validation_error", refusal, uuid,
-                            JsonUtility.ToJson(new TextResponseData { text = refusal }));
+                        await WriteEnvelopeResponseAsync(context, refusal, "RuntimeCompile");
+                        return;
+                    }
+
+                    s_ReplServiceRegistry.UseRuntimeCompileSet(uuid, compileSetPath);
+                    var compiler = s_ReplServiceRegistry.FetchRuntimeREPLCompiler(uuid, compileSetPath, s_RuntimeREPLCompilerGenerator);
+                    var (compileBytes, compileScriptClsName, errorMsg) = compiler.Compile(code, defines, defaultUsing);
+                    var compilerNotice = ConsumeCompilerNotice(compiler);
+                    if (!string.IsNullOrEmpty(errorMsg))
+                    {
+                        result = $"Compile failed: {errorMsg}";
+                    }
+                    else if (compileBytes == null)
+                    {
+                        result = compilerNotice;
                     }
                     else
                     {
-                        var compiler = s_ReplServiceRegistry.FetchRuntimeREPLCompiler(uuid, compileSetPath, s_RuntimeREPLCompilerGenerator);
-                        var (compileBytes, compileScriptClsName, errorMsg) = compiler.Compile(code, defines, defaultUsing);
-                        var compilerNotice = ConsumeCompilerNotice(compiler);
-                        if (!string.IsNullOrEmpty(errorMsg))
-                        {
-                            result = $"Compile failed: {errorMsg}";
-                        }
-                        else if (compileBytes == null)
-                        {
-                            result = compilerNotice;
-                        }
-                        else
-                        {
-                            var executeResult = await ForwardDllToPlayer(targetIP, targetPort, uuid, compileBytes, compileScriptClsName);
-                            result = CombineCompilerNotice(compilerNotice, executeResult);
-                        }
+                        var executeResult = await ForwardDllToPlayer(targetIP, targetPort, uuid, compileBytes, compileScriptClsName);
+                        result = CombineCompilerNotice(compilerNotice, executeResult);
                     }
                 }
             }
@@ -1385,7 +1381,7 @@ namespace Zh1Zh1.CSharpConsole.Service
                 result = $"Compile failed, {e}";
             }
 
-            var envelope = refusalEnvelope ?? s_EnvelopeFactory.CreateTextEnvelope("execute", result, uuid);
+            var envelope = s_EnvelopeFactory.CreateTextEnvelope("execute", result, uuid);
             await WriteEnvelopeResponseAsync(context, envelope, "RuntimeCompile");
         }
 
@@ -1433,44 +1429,51 @@ namespace Zh1Zh1.CSharpConsole.Service
 
         /// <summary>
         /// The compile set a submission for the player at <paramref name="ip"/> is compiled
-        /// against, or why it cannot be compiled yet.
+        /// against, or the response to send instead of compiling it.
         ///
         /// A caller that names its own set is taken at its word, unless the set names a
         /// different build than the player's. Otherwise the player's build is looked up in
         /// <see cref="CompileSetStore"/>: a registered set is used, a skipped build compiles
         /// unaligned, and a build nothing was decided for is refused until one of the two
-        /// is. A player that does not report its build, or cannot be asked, compiles
-        /// unaligned as before -- there is nothing to look up.
+        /// is. A player that does not report its build compiles unaligned as before --
+        /// there is nothing to look up. A player that cannot be asked is not compiled for
+        /// at all: the submission would be forwarded to that same player.
         ///
         /// The player is asked on every submission rather than once per session: a session
         /// outlives the player it was opened against, and a player restarted from another
         /// build is the case this exists to catch.
         /// </summary>
-        private static async Task<(string refusal, string compileSetPath)> ResolveRuntimeCompileSet(string ip, string port, string runtimeDllPath)
+        private static async Task<(HttpResponseEnvelope refusal, string compileSetPath)> ResolveRuntimeCompileSet(string ip, string port, string runtimeDllPath, string uuid)
         {
             if (string.IsNullOrEmpty(ip))
             {
                 return (null, runtimeDllPath);
             }
 
-            if (!string.IsNullOrEmpty(runtimeDllPath))
+            var setBuildGuid = CompileSetStore.ReadBuildGuid(runtimeDllPath);
+            if (!string.IsNullOrEmpty(runtimeDllPath) && string.IsNullOrEmpty(setBuildGuid))
             {
-                var setBuildGuid = CompileSetStore.ReadBuildGuid(runtimeDllPath);
-                if (string.IsNullOrEmpty(setBuildGuid))
-                {
-                    return (null, runtimeDllPath);
-                }
-
-                var reported = await FetchPlayerBuildGuid(ip, port);
-                return string.IsNullOrEmpty(reported) || CompileSetStore.SameBuild(reported, setBuildGuid)
-                    ? (null, runtimeDllPath)
-                    : (DescribeBuildMismatch(reported, setBuildGuid, runtimeDllPath), null);
+                return (null, runtimeDllPath);
             }
 
-            var playerBuildGuid = await FetchPlayerBuildGuid(ip, port);
-            if (string.IsNullOrEmpty(playerBuildGuid))
+            var (playerBuildGuid, failure) = await FetchPlayerBuildGuid(ip, port);
+            if (failure != null)
             {
-                return (null, "");
+                // Worded and classified as the forward failure it stands in for.
+                var text = ConsoleLog.Format($"Forward failed: could not reach the player at {ip}:{port} to read its build: {failure}");
+                return (s_EnvelopeFactory.CreateTextEnvelope("execute", text, uuid), null);
+            }
+
+            if (!CompileSetStore.IsValidBuildGuid(playerBuildGuid))
+            {
+                return (null, runtimeDllPath);
+            }
+
+            if (setBuildGuid != null)
+            {
+                return CompileSetStore.SameBuild(playerBuildGuid, setBuildGuid)
+                    ? (null, runtimeDllPath)
+                    : (Refuse(DescribeBuildMismatch(playerBuildGuid, setBuildGuid, runtimeDllPath), uuid), null);
             }
 
             if (CompileSetStore.TryLookup(playerBuildGuid, out var setDirectory))
@@ -1478,9 +1481,19 @@ namespace Zh1Zh1.CSharpConsole.Service
                 return (null, setDirectory ?? "");
             }
 
-            return ("[REPL ALIGNMENT REQUIRED]\n" +
-                    $"This player is build {playerBuildGuid}, and this editor has no compile set registered for it.\n" +
-                    "Register the CSharpConsoleCompileSet.zip exported beside that build (a file path or a URL), or skip alignment for this build.", null);
+            return (Refuse("[REPL ALIGNMENT REQUIRED]\n" +
+                           $"This player is build {playerBuildGuid}, and this editor has no compile set registered for it.\n" +
+                           "Register the CSharpConsoleCompileSet.zip exported beside that build (a file path or a URL), or skip alignment for this build.", uuid), null);
+        }
+
+        /// <summary>
+        /// Typed here, where it is known to be a refusal, rather than left for
+        /// CreateTextEnvelope to recognise: that classifier also reads every editor-mode result.
+        /// </summary>
+        private static HttpResponseEnvelope Refuse(string text, string uuid)
+        {
+            return s_EnvelopeFactory.CreateEnvelope(false, "execute", "validation_error", text, uuid,
+                JsonUtility.ToJson(new TextResponseData { text = text }));
         }
 
         private static string DescribeBuildMismatch(string playerBuildGuid, string setBuildGuid, string setDirectory)
@@ -1515,7 +1528,7 @@ namespace Zh1Zh1.CSharpConsole.Service
                 using var body = new MemoryStream();
                 await context.Request.InputStream.CopyToAsync(body);
 
-                var playerBuildGuid = string.IsNullOrEmpty(targetIP) ? null : await FetchPlayerBuildGuid(targetIP, targetPort);
+                var playerBuildGuid = string.IsNullOrEmpty(targetIP) ? null : (await FetchPlayerBuildGuid(targetIP, targetPort)).buildGuid;
                 response = skip
                     ? SkipCompileSet(targetIP, targetPort, playerBuildGuid)
                     : RegisterCompileSet(body.ToArray(), playerBuildGuid);
@@ -1577,37 +1590,32 @@ namespace Zh1Zh1.CSharpConsole.Service
 
         /// <summary>
         /// The build GUID the player reports, empty when it reports none (a player built
-        /// before the package carried its identity), or null when it could not be asked.
+        /// before the package carried its identity); or, when it could not be asked, why not.
+        /// Every player has answered health since the first release, so failing to is a
+        /// fault, not a player too old to know.
         /// </summary>
-        private static async Task<string> FetchPlayerBuildGuid(string ip, string port)
+        private static async Task<(string buildGuid, string failure)> FetchPlayerBuildGuid(string ip, string port)
         {
             try
             {
                 using var response = await PostJsonToPlayer(ip, port, "health", "{}");
                 if (!response.IsSuccessStatusCode)
                 {
-                    // Warned rather than passed over: the player is about to be sent a
-                    // DLL over the same connection, so failing to read its identity is
-                    // a fault here, not a player that cannot answer.
-                    ConsoleLog.Warning(
-                        $"Could not read the build identity of the player at {ip}:{port}: "
-                        + $"health answered {(int)response.StatusCode}. Compiling without checking it.");
-                    return null;
+                    return (null, $"health answered {(int)response.StatusCode} {response.ReasonPhrase}");
                 }
 
                 var envelope = JsonUtility.FromJson<HttpResponseEnvelope>(await response.Content.ReadAsStringAsync());
-                if (envelope == null || string.IsNullOrEmpty(envelope.dataJson))
-                {
-                    return null;
-                }
-
-                var health = JsonUtility.FromJson<HealthResponse>(envelope.dataJson);
-                return health == null ? null : health.buildGuid ?? "";
+                var health = envelope == null || string.IsNullOrEmpty(envelope.dataJson)
+                    ? null
+                    : JsonUtility.FromJson<HealthResponse>(envelope.dataJson);
+                return health == null
+                    ? (null, "health answered without its data")
+                    : (health.buildGuid ?? "", null);
             }
             catch (Exception e)
             {
-                ConsoleLog.Debug($"Could not read the build identity of the player at {ip}:{port}: {e.Message}");
-                return null;
+                // Mono pads a socket error's message with NULs.
+                return (null, e.GetBaseException().Message.TrimEnd('\0').Trim());
             }
         }
 

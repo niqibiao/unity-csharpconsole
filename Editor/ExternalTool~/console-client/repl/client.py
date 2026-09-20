@@ -138,21 +138,18 @@ def execute_runtime_request(message, session_id, reset=False, invalidate_complet
 def _with_alignment_hint(result):
     if result.get("ok") or not (result.get("summary") or "").startswith(_ALIGNMENT_REQUIRED_MARKER):
         return result
+    # A failed result is shown by its summary alone, so that is the only place the hint goes.
     result["summary"] = f"{result['summary']}\n{_ALIGNMENT_HINT}"
-    data = result.get("data")
-    if isinstance(data, dict) and isinstance(data.get("text"), str):
-        data["text"] = f"{data['text']}\n{_ALIGNMENT_HINT}"
     return result
 
 
 def request_compile_set(source):
     """Register the compile set at *source* (a zip path or an http(s) URL) for the
     player's build, or skip alignment for it when *source* is 'skip'."""
-    skip = source.strip().lower() == "skip"
     zip_bytes = None
-    if not skip:
-        zip_bytes = runtime_artifacts_base.read_compile_set(source, lambda url: transport_http.get_bytes(url, client_base.TIMEOUT_COMPILE_SET))
-    return client_base.request_compile_set(transport_http.post_binary, response_parser.parse_compile_set_http_response, config.current_server_base_url(), config.runtime_ip, config.runtime_port, zip_bytes, skip)
+    if source.lower() != "skip":
+        zip_bytes = runtime_artifacts_base.read_compile_set(source, lambda url: transport_http.get_bytes(url, client_base.TIMEOUT_ZIP_TRANSFER))
+    return client_base.request_compile_set(transport_http.post_binary, response_parser.parse_compile_set_http_response, config.current_server_base_url(), config.runtime_ip, config.runtime_port, zip_bytes)
 
 
 def compile_editor_request(message, session_id):
@@ -200,7 +197,7 @@ def parse_upload_dlls_http_response(raw):
 
 def upload_zip_to_compile_server(zip_bytes):
     endpoint = f"http://{config.compile_ip}:{config.compile_port}/CSharpConsole/upload-dlls"
-    raw = transport_http.post_binary(endpoint, zip_bytes, 600)
+    raw = transport_http.post_binary(endpoint, zip_bytes, client_base.TIMEOUT_ZIP_TRANSFER)
     data = parse_upload_dlls_http_response(raw)
     return data.get("runtimeDllPath", ""), data.get("runtimeDefinesPath", "")
 

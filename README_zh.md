@@ -164,14 +164,14 @@ python "Editor/ExternalTool~/console-client/csharp_repl.py" \
 
 ### 远程 Runtime — 可选设置
 
-通过 **Console > RemoteC#Console** 连接 Runtime Player 时，有两个可选设置可以提高编译准确性：
+通过 **Console > RemoteC#Console** 连接 Runtime Player 时，有两个可选设置可以覆盖提交所依据的编译环境。通常两项都留空：Editor 会使用为该 Player 构建登记的编译集（见[编译集对齐](#编译集对齐)）。
 
 | 设置 | 说明 |
 |------|------|
-| **Runtime Dll Path** | Player 编译后的程序集目录。编译器使用这些 DLL 替代 Editor 程序集来解析类型，确保编译结果与 Player 实际运行环境一致。推荐路径：`Library/Bee/PlayerScriptAssemblies`（执行 Player 构建后生成）。 |
-| **Runtime Defines File** | `.txt` 文件，列出与 Player 构建配置一致的预处理器宏定义，确保 `#if` 指令编译时与 Player 端求值结果相同。支持每行一个宏定义或分号分隔（如 `UNITY_ANDROID;IL2CPP;DEVELOPMENT_BUILD`）。 |
+| **Runtime Dll Path** | 一个程序集目录，其中的 DLL 替换编译器原本使用的同名程序集；设置后优先于已登记的编译集。用于构建之外的代码，例如热更新程序集：把该构建的 `CSharpConsoleCompileSet.zip` 解压，替换其中热更新过的 DLL，这样构建的其余程序集和宏定义仍然生效。 |
+| **Runtime Defines File** | `.txt` 文件，列出预处理器宏定义，每行一个或分号分隔（如 `UNITY_ANDROID;IL2CPP;DEVELOPMENT_BUILD`）。对照构建导出的编译集编译时不生效，此时使用编译集自带的、该构建编译时的宏定义。 |
 
-两项设置持久化在 `EditorPrefs` 中，仅在 **Remote Is Editor** 未勾选时生效。留空则使用默认值（Editor 程序集和宏定义）。
+两项设置持久化在 `EditorPrefs` 中，仅在 **Remote Is Editor** 未勾选时生效。
 
 ### 编译集对齐
 
@@ -186,7 +186,7 @@ Editor 按 Player 构建做决定。某个构建第一次收到 runtime 提交�
 
 决定由 Editor 按 Player 的构建 GUID 保存，之后针对该构建的所有提交（无论来自本 REPL 还是其他客户端）都直接沿用，不再询问。随时可以再次执行 `/compileset` 换一个 zip，或在对齐与跳过之间切换。Player 换成新构建后会重新询问。与运行中 Player 不属于同一构建的 zip 会被拒绝登记。决定与已登记的编译集保存在工程的 `Library/CSharpConsole/CompileSets/` 下，Editor 重启后仍然有效；删除 `Library/` 会清空它们，届时 Editor 会重新询问。
 
-> 在此功能之前构建的 Player 不上报构建 GUID，按原方式编译。对齐描述的是打包时的构建：之后通过热更新替换的代码不会反映在编译集中。
+> 在此功能之前构建的 Player 不上报构建 GUID，按原方式编译。对齐描述的是打包时的构建：之后通过热更新替换的代码不会反映在编译集中，这种情况请使用上文的 **Runtime Dll Path**。
 
 ### 快捷键
 

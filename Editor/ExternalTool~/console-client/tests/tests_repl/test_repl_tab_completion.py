@@ -539,7 +539,6 @@ class BuiltinCommandFeedbackTests(unittest.TestCase):
         text = "[REPL ALIGNMENT REQUIRED]\nThis player is build x, and this editor has no compile set registered for it."
         result = client._with_alignment_hint({"ok": False, "summary": text, "data": {"text": text}})
         self.assertTrue(result["summary"].endswith("/compileset skip."))
-        self.assertTrue(result["data"]["text"].endswith("/compileset skip."))
 
     def test_other_failures_are_left_alone(self):
         result = client._with_alignment_hint({"ok": False, "summary": "Compile failed: CS1002", "data": {"text": "x"}})

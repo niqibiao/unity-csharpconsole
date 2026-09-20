@@ -30,6 +30,7 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
         private readonly string m_AssemblyPrefix;
         private readonly bool m_CacheReferences;
         private readonly string m_DefaultDefines;
+        private readonly bool m_IgnoreRequestDefines;
         private readonly string m_RuntimeDllPath;
 
         private int m_SubmissionId;
@@ -46,10 +47,12 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
 
         private readonly HashSet<string> m_CachedUsingLines = new HashSet<string>(StringComparer.Ordinal);
 
-        public BaseREPLCompiler(string assemblyPrefix, string defaultDefines, bool cacheReferences, string runtimeDllPath = null)
+        /// <param name="ignoreRequestDefines">Use <paramref name="defaultDefines"/> even when a request carries defines of its own.</param>
+        public BaseREPLCompiler(string assemblyPrefix, string defaultDefines, bool cacheReferences, string runtimeDllPath = null, bool ignoreRequestDefines = false)
         {
             m_AssemblyPrefix = assemblyPrefix;
             m_DefaultDefines = defaultDefines ?? "";
+            m_IgnoreRequestDefines = ignoreRequestDefines;
             m_CacheReferences = cacheReferences;
             m_RuntimeDllPath = runtimeDllPath;
             ConsoleLog.Debug($"BaseREPLCompiler created: assemblyPrefix={m_AssemblyPrefix}, defaultDefines={m_DefaultDefines}, cacheReferences={m_CacheReferences}, runtimeDllPath={m_RuntimeDllPath}");
@@ -59,7 +62,7 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
         /// Compiles REPL code.
         /// </summary>
         /// <param name="code">User code.</param>
-        /// <param name="defines">Preprocessor symbols separated by semicolons. Falls back to m_DefaultDefines when empty.</param>
+        /// <param name="defines">Preprocessor symbols separated by semicolons. Falls back to m_DefaultDefines when empty, and is ignored when m_IgnoreRequestDefines is set.</param>
         /// <param name="defaultUsing">Additional default using prefix.</param>
         public virtual (byte[] assemblyBytes, string scriptClass, string errorMsg) Compile(string code, string defines = null, string defaultUsing = null)
         {
@@ -457,7 +460,7 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
 
         private string[] ResolveDefineSymbols(string defines)
         {
-            var str = string.IsNullOrEmpty(defines) ? m_DefaultDefines : defines;
+            var str = m_IgnoreRequestDefines || string.IsNullOrEmpty(defines) ? m_DefaultDefines : defines;
             return str.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
                 .Select(s => s.Trim())
                 .Where(s => s.Length > 0)

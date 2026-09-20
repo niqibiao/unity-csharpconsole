@@ -23,10 +23,14 @@ def _post(url, data=None, json=None, content_type="application/json", timeout_se
         headers={"Content-Type": content_type},
         method="POST",
     )
+    raw, charset = _open(request, timeout_seconds)
+    return raw.decode(charset or "utf-8")
+
+
+def _open(request, timeout_seconds):
     try:
         with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-            charset = response.headers.get_content_charset() or "utf-8"
-            return response.read().decode(charset)
+            return response.read(), response.headers.get_content_charset()
     except urllib.error.HTTPError as e:
         # urlopen raises for non-2xx, mirroring requests' raise_for_status().
         raise TransportError(f"HTTP {e.code} {e.reason}") from e
@@ -49,13 +53,11 @@ def post_binary(url, body, timeout_seconds):
     return _post(url, data=body, content_type="application/octet-stream", timeout_seconds=timeout_seconds)
 
 
+def is_http_url(url):
+    return url.lower().startswith(("http://", "https://"))
+
+
 def get_bytes(url, timeout_seconds):
-    if not url.lower().startswith(("http://", "https://")):
+    if not is_http_url(url):
         raise TransportError(f"Only http:// and https:// URLs can be downloaded: {url}")
-    try:
-        with urllib.request.urlopen(url, timeout=timeout_seconds) as response:
-            return response.read()
-    except urllib.error.HTTPError as e:
-        raise TransportError(f"HTTP {e.code} {e.reason}") from e
-    except OSError as e:
-        raise TransportError(str(getattr(e, "reason", e))) from e
+    return _open(url, timeout_seconds)[0]

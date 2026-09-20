@@ -56,15 +56,10 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
             }
 
             var zipPath = Path.Combine(directory, FileName);
-            if (File.Exists(zipPath))
-            {
-                File.Delete(zipPath);
-            }
-
             var bcl = record.bclMscorlibPath;
             var substitute = !string.IsNullOrEmpty(bcl) && File.Exists(bcl);
 
-            using (var stream = new FileStream(zipPath, FileMode.CreateNew, FileAccess.Write))
+            using (var stream = new FileStream(zipPath, FileMode.Create, FileAccess.Write))
             using (var archive = new ZipArchive(stream, ZipArchiveMode.Create))
             {
                 foreach (var dll in Directory.GetFiles(record.strippedAssembliesPath, "*.dll"))

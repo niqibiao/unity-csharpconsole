@@ -4,6 +4,7 @@ import time
 import zipfile
 
 from .models import make_result, new_run_id
+from .transport_http import is_http_url
 
 
 def zip_directory(dir_path, extra_file_path=None, extra_archive_name=None):
@@ -22,13 +23,9 @@ def zip_directory(dir_path, extra_file_path=None, extra_archive_name=None):
     return buf.getvalue()
 
 
-def is_url(source):
-    return source.lower().startswith(("http://", "https://"))
-
-
 def read_compile_set(source, fetch_bytes):
     """Bytes of a compile set zip named by a local path or an http(s) URL."""
-    if is_url(source):
+    if is_http_url(source):
         return fetch_bytes(source)
     if not os.path.isfile(source):
         raise FileNotFoundError(f"Compile set zip not found: {source}")

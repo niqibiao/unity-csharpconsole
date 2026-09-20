@@ -25,8 +25,13 @@ namespace Zh1Zh1.CSharpConsole.Service.Endpoints
             {
                 var req = JsonUtility.FromJson<CompletionRequest>(message);
 
-                IREPLCompiler compiler = !string.IsNullOrEmpty(req.runtimeDllPath)
-                    ? _dependencies.FetchRuntimeReplCompiler(req.uuid, req.runtimeDllPath)
+                // A runtime session that names no set is compiled against the one the editor
+                // resolved for it, so its completions are too.
+                var runtimeDllPath = !string.IsNullOrEmpty(req.runtimeDllPath)
+                    ? req.runtimeDllPath
+                    : _dependencies.FindRuntimeCompileSet(req.uuid);
+                IREPLCompiler compiler = runtimeDllPath != null
+                    ? _dependencies.FetchRuntimeReplCompiler(req.uuid, runtimeDllPath)
                     : _dependencies.FetchEditorReplCompiler(req.uuid);
 
                 if (compiler is IREPLCompletionProvider completionProvider)

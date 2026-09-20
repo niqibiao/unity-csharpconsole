@@ -36,7 +36,7 @@ class ClientBaseTests(unittest.TestCase):
             calls.append((url, body))
             return _ok_envelope("Skipped")
 
-        request_compile_set(post_binary, parse_compile_set_http_response, "http://127.0.0.1:14500/CSharpConsole", "10.0.0.5", 15500, skip=True)
+        request_compile_set(post_binary, parse_compile_set_http_response, "http://127.0.0.1:14500/CSharpConsole", "10.0.0.5", 15500, None)
         url, body = calls[0]
         self.assertEqual(urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)["skip"], ["true"])
         self.assertEqual(body, b"")

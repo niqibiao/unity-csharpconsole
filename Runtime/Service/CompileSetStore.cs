@@ -93,15 +93,29 @@ namespace Zh1Zh1.CSharpConsole.Service
             return extractDir;
         }
 
-        /// <summary>The build a set directory names, or null when it names none.</summary>
-        internal static string ReadBuildGuid(string setDirectory)
+        /// <summary>
+        /// The build a set directory names, or null when it names none -- as a plain DLL
+        /// upload does, where only a set a build exported names one.
+        /// </summary>
+        public static string ReadBuildGuid(string setDirectory)
+        {
+            return ReadSetFile(setDirectory, GuidFileName);
+        }
+
+        /// <summary>The symbols a set directory's build was compiled with, or null when it records none.</summary>
+        public static string ReadDefines(string setDirectory)
+        {
+            return ReadSetFile(setDirectory, DefinesFileName);
+        }
+
+        private static string ReadSetFile(string setDirectory, string fileName)
         {
             if (string.IsNullOrEmpty(setDirectory))
             {
                 return null;
             }
 
-            var path = Path.Combine(setDirectory, GuidFileName);
+            var path = Path.Combine(setDirectory, fileName);
             return File.Exists(path) ? File.ReadAllText(path).Trim() : null;
         }
 
@@ -209,6 +223,12 @@ namespace Zh1Zh1.CSharpConsole.Service
 
         private static string DecisionPath(string buildGuid)
         {
+            // The one place a GUID becomes a path, so the one place that keeps it inside the root.
+            if (!IsValidBuildGuid(buildGuid))
+            {
+                throw new ArgumentException($"Not a build GUID: {buildGuid}", nameof(buildGuid));
+            }
+
             return Path.Combine(DecisionsRoot, buildGuid.ToLowerInvariant());
         }
     }

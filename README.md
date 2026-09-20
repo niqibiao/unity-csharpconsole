@@ -165,14 +165,14 @@ Python 3.7+ is required. Python dependencies (`requests`, `prompt_toolkit`, `Pyg
 
 ### Remote Runtime — Optional Settings
 
-When connecting to a Runtime Player via **Console > RemoteC#Console**, two optional settings are available to improve compilation accuracy:
+When connecting to a Runtime Player via **Console > RemoteC#Console**, two optional settings override what submissions are compiled against. Leave both empty in the usual case: the Editor then compiles against the compile set registered for the Player's build (see [Compile Set Alignment](#compile-set-alignment)).
 
 | Setting | Description |
 |---------|-------------|
-| **Runtime Dll Path** | Directory containing the player's compiled assemblies. The compiler uses these DLLs instead of Editor assemblies to resolve types, ensuring the compiled code matches what the player actually has. Recommended path: `Library/Bee/PlayerScriptAssemblies` (populated after a player build). |
-| **Runtime Defines File** | A `.txt` file listing preprocessor defines that match the player's build configuration, ensuring `#if` directives evaluate the same way as in the player. Supports one define per line or semicolon-separated (e.g. `UNITY_ANDROID;IL2CPP;DEVELOPMENT_BUILD`). |
+| **Runtime Dll Path** | A directory of assemblies that replace the same-named ones the compiler would otherwise use; when set, it is used instead of any registered compile set. Use it for code the build did not ship, such as hot-updated assemblies: unzip the build's `CSharpConsoleCompileSet.zip` and replace the hot-updated DLLs in it, so the build's other assemblies and symbols still apply. |
+| **Runtime Defines File** | A `.txt` file of preprocessor defines, one per line or semicolon-separated (e.g. `UNITY_ANDROID;IL2CPP;DEVELOPMENT_BUILD`). Ignored when compiling against a compile set a build exported, which carries the symbols that build was compiled with. |
 
-Both settings are persisted in `EditorPrefs` and only apply when **Remote Is Editor** is unchecked. Leave them empty to use defaults (Editor assemblies and defines).
+Both settings are persisted in `EditorPrefs` and only apply when **Remote Is Editor** is unchecked.
 
 ### Compile Set Alignment
 
@@ -187,7 +187,7 @@ The Editor decides per Player build. The first runtime submission for a build it
 
 The decision is kept by the Editor keyed by the Player's build GUID, so every later submission for that build — from this REPL or any other client — uses it without asking again. Run `/compileset` again at any time to register a different zip or to switch between aligned and skipped. A Player restarted from a new build asks again. A zip from a different build than the running Player is refused rather than registered. Decisions and registered sets are stored under the project's `Library/CSharpConsole/CompileSets/`, so they survive Editor restarts; deleting `Library/` clears them and the Editor asks again.
 
-> Players built before this feature do not report a build GUID and are compiled for as before. Alignment describes the build as shipped: code replaced later by hot update is not reflected in the set.
+> Players built before this feature do not report a build GUID and are compiled for as before. Alignment describes the build as shipped: code replaced later by hot update is not reflected in the set — use **Runtime Dll Path** above for that.
 
 ### Key Bindings
 
