@@ -171,6 +171,8 @@ Runtime submissions are compiled in the Editor but run in the Player. By default
 
 Toggle automatic export in **Edit > Project Settings > C# Console > Export Compile Set After Build**. This project setting is stored as `exportCompileSetAfterBuild` in `ProjectSettings/CSharpConsoleSettings.json` and also applies to batch builds. Disabling it does not delete existing compile sets.
 
+Use **Export ZIP Path** on the same page to choose the output file, for example `Build/CompileSets/Player.zip`, or use **Browse...**. Absolute paths and paths relative to the project root are supported; missing folders are created. Leave it empty to keep exporting beside the Player. The path is saved as `exportCompileSetPath` in the same JSON file. Each export replaces the ZIP at the selected path.
+
 A directory carrying `build-guid.txt` is treated as a complete reference set for compilation and completion; Editor-only assemblies are not added. An empty set or an unreadable DLL reports an error. For existing clients, the `--runtime-dll-path` and `--runtime-defines` REPL arguments remain supported; plain DLL directories without a build GUID replace same-named references. The exported `mscorlib.dll` uses the target's unstripped BCL to support Roslyn script compilation, so alignment cannot detect every stripped BCL member before execution.
 
 The Editor decides per Player build. The first runtime submission for a build it has no decision for is refused with `[REPL ALIGNMENT REQUIRED]`; answer it once:

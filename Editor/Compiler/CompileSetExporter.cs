@@ -7,7 +7,7 @@ using Zh1Zh1.CSharpConsole.Service;
 namespace Zh1Zh1.CSharpConsole.Editor.Compiler
 {
     /// <summary>
-    /// Writes a build's compile set next to the player as a zip.
+    /// Writes a build's compile set as a zip, next to the player by default.
     ///
     /// A submission bound for a player is compiled in an editor but runs in the player.
     /// Compiled against the editor's own assemblies and symbols, it proves nothing: code
@@ -40,7 +40,7 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
         /// </summary>
         private const string SubstitutedAssembly = "mscorlib.dll";
 
-        internal static void Export(PlayerBuildRecord record, string playerOutputPath)
+        internal static void Export(PlayerBuildRecord record, string playerOutputPath, string exportPath = null)
         {
             if (string.IsNullOrEmpty(record.strippedAssembliesPath) || !Directory.Exists(record.strippedAssembliesPath))
             {
@@ -48,14 +48,19 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
                 return;
             }
 
-            var directory = Path.GetDirectoryName(playerOutputPath);
-            if (string.IsNullOrEmpty(directory))
+            var zipPath = exportPath;
+            if (string.IsNullOrEmpty(zipPath))
             {
-                ConsoleLog.Warning($"Could not work out where to put {FileName}: this build reported no output path.");
-                return;
+                var directory = Path.GetDirectoryName(playerOutputPath);
+                if (string.IsNullOrEmpty(directory))
+                {
+                    ConsoleLog.Warning($"Could not work out where to put {FileName}: this build reported no output path.");
+                    return;
+                }
+                zipPath = Path.Combine(directory, FileName);
             }
 
-            var zipPath = Path.Combine(directory, FileName);
+            Directory.CreateDirectory(Path.GetDirectoryName(zipPath));
             var bcl = record.bclMscorlibPath;
             var substitute = !string.IsNullOrEmpty(bcl) && File.Exists(bcl);
 

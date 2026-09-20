@@ -40,7 +40,7 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
     }
 
     /// <summary>
-    /// Exports a <see cref="PlayerBuildRecord"/> beside each player build as it finishes.
+    /// Exports a <see cref="PlayerBuildRecord"/> as each player build finishes.
     /// </summary>
     internal class PlayerBuildRecorder : IPostprocessBuildWithReport
     {
@@ -63,10 +63,13 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
 
             try
             {
-                if (!CSharpConsoleSettings.Load().exportCompileSetAfterBuild)
+                var settings = CSharpConsoleSettings.Load();
+                if (!settings.exportCompileSetAfterBuild)
                 {
                     return;
                 }
+
+                var exportPath = settings.ResolveExportPath();
 
                 var projectRoot = Directory.GetParent(Application.dataPath).FullName;
                 var artifacts = Path.Combine(projectRoot, "Library/Bee/artifacts");
@@ -98,7 +101,7 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
                     defines = defines,
                 };
 
-                CompileSetExporter.Export(record, report.summary.outputPath);
+                CompileSetExporter.Export(record, report.summary.outputPath, exportPath);
             }
             catch (Exception e)
             {
