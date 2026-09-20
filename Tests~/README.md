@@ -22,3 +22,12 @@ all requests are rejected and no compile-set decisions should be written. Set
 `CSHARPCONSOLE_TEST_URL=http://127.0.0.1:14500/CSharpConsole` (adjust the port), then
 run `python -B -m unittest discover -s Tests~ -p "test_*.py" -v`. Without the
 environment variable, these live tests skip.
+
+`HierarchyRegression.cs` creates a temporary scene and prefab, then restores the
+active scene and removes its prefab folder. It writes JSON samples under
+`Temp/CSharpConsole/AgentScratch/hierarchy-regression/`. Set
+`CSHARPCONSOLE_HIERARCHY_RESULTS` to that absolute directory and run
+`python -B -m unittest discover -s Tests~ -p test_hierarchy_results.py -v`.
+The independent JSON parser checks deep and empty trees, escaping, requested
+and safety depth limits, exact and exceeded node budgets, qualified component
+names, and absence of serialization warnings.

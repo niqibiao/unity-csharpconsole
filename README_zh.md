@@ -246,7 +246,7 @@ Tab 补全支持命令名和参数名。
 | | `get` | 获取组件的序列化字段数据 |
 | | `modify` | 修改组件的序列化字段 |
 | **transform** | `set` | 设置位置、旋转和/或缩放（本地或世界坐标） |
-| **scene** | `hierarchy` | 获取完整场景层级树，可选包含组件信息 |
+| **scene** | `hierarchy` | 检查场景层级树，可选包含组件信息 |
 | **prefab** | `create` | 从场景 GameObject 创建 Prefab 资产 |
 | | `instantiate` | 将 Prefab 实例化到当前场景 |
 | | `unpack` | 解包 Prefab 实例 |
@@ -300,6 +300,12 @@ Tab 补全支持命令名和参数名。
 > 39 个 Action 需要 Editor，发到 Runtime 构建会明确报错。其余 23 个在 Runtime 构建中同样应答：`runtime/info`、`scene/hierarchy`、`gameobject/*`、`transform/set`、`component/*`、`screenshot/game_view`、`profiler/start|stop|status`、`session/*`、`command/*`。Runtime 没有 Undo 栈，在那里做的修改无法撤销；`component/get|modify` 在 Runtime 只覆盖工程自己声明的组件——内置组件的状态存在原生属性而非序列化字段里。
 >
 > `prefab/asset_*` 直接编辑磁盘上的资产，无需打开场景。其子物体通过 `asset_hierarchy` 返回的身份选择器（`gid:<guid>:<localFileId>`）定位，而非名称路径。
+
+2.4.0 的场景和 Prefab 层级结果包含 `nodeCount`、`truncated` 和
+`truncationReasons`，分别用 `requested_depth`、`node_limit`（5000 个节点）、
+`depth_limit`（深度 128，根节点为 0）说明截断原因。`depth=-1` 仍保留安全上限。
+组件检查和层级结果返回带命名空间的类型名，例如 `Game.GameEntry`，可直接作为
+后续命令的 `typeName`。
 >
 > `editor/test.*` 需要消费项目安装 `com.unity.test-framework`；未安装时命令仍在注册表中，但会返回说明性错误。
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 #if UNITY_EDITOR
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -391,6 +392,9 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public string assetPath = "";
             public string rootName = "";
             public AssetHierarchyNode root;
+            public int nodeCount;
+            public bool truncated;
+            public string[] truncationReasons = Array.Empty<string>();
         }
 
         [CommandAction(
@@ -417,37 +421,31 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     if (locatorIndex == null)
                         return (error, result: (AssetHierarchyResult)null);
 
-                    var nodeCount = 0;
-                    const int maxNodes = 5000;
+                    var traversal = new HierarchyTraversal<AssetHierarchyNode>(depth,
+                        t => CreateAssetHierarchyNode(t, locatorIndex, includeComponents),
+                        (node, children) => node.children = children);
+                    var nodes = traversal.Build(new[] { root });
 
                     return (error: (string)null, result: new AssetHierarchyResult
                     {
                         assetPath = assetPath,
                         rootName = root.name,
-                        root = BuildAssetHierarchyNode(
-                            root.transform,
-                            locatorIndex,
-                            depth,
-                            0,
-                            includeComponents,
-                            ref nodeCount,
-                            maxNodes)
+                        root = nodes[0],
+                        nodeCount = traversal.NodeCount,
+                        truncated = traversal.Truncated,
+                        truncationReasons = traversal.TruncationReasons
                     });
                 },
-                r => $"Prefab '{r.rootName}' hierarchy"
+                r => $"Prefab '{r.rootName}' hierarchy",
+                SerializeHierarchy
             );
         }
 
-        private static AssetHierarchyNode BuildAssetHierarchyNode(
+        private static AssetHierarchyNode CreateAssetHierarchyNode(
             Transform t,
             PrefabLocatorIndex locatorIndex,
-            int maxDepth,
-            int currentDepth,
-            bool includeComponents,
-            ref int nodeCount,
-            int maxNodes)
+            bool includeComponents)
         {
-            nodeCount++;
             var go = t.gameObject;
             var locator = locatorIndex.GetLocator(go, out var locatorError);
             if (locator == null)
@@ -467,29 +465,36 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 var names = new List<string>(comps.Length);
                 foreach (var c in comps)
                 {
-                    if (c != null) names.Add(c.GetType().Name);
+                    if (c != null) names.Add(c.GetType().FullName);
                 }
                 node.components = names.ToArray();
             }
 
-            if ((maxDepth < 0 || currentDepth < maxDepth) && t.childCount > 0)
-            {
-                var children = new List<AssetHierarchyNode>(t.childCount);
-                for (var i = 0; i < t.childCount && nodeCount < maxNodes; i++)
-                {
-                    children.Add(BuildAssetHierarchyNode(
-                        t.GetChild(i),
-                        locatorIndex,
-                        maxDepth,
-                        currentDepth + 1,
-                        includeComponents,
-                        ref nodeCount,
-                        maxNodes));
-                }
-                node.children = children.ToArray();
-            }
-
             return node;
+        }
+
+        private static string SerializeHierarchy(AssetHierarchyResult result)
+        {
+            var json = new StringBuilder();
+            json.Append("{\"assetPath\":").Append(CommandContractValueEncoder.Quote(result.assetPath));
+            json.Append(",\"rootName\":").Append(CommandContractValueEncoder.Quote(result.rootName));
+            json.Append(",\"nodeCount\":").Append(result.nodeCount);
+            json.Append(",\"truncated\":").Append(result.truncated ? "true" : "false");
+            json.Append(",\"truncationReasons\":").Append(CommandContractValueEncoder.Encode(result.truncationReasons));
+            json.Append(",\"root\":{");
+            WriteHierarchyNodeFields(json, result.root);
+            json.Append(",\"children\":");
+            HierarchyTraversal<AssetHierarchyNode>.WriteNodes(json, result.root.children, WriteHierarchyNodeFields, node => node.children);
+            return json.Append("}}").ToString();
+        }
+
+        private static void WriteHierarchyNodeFields(StringBuilder json, AssetHierarchyNode node)
+        {
+            json.Append("\"gameObjectPath\":").Append(CommandContractValueEncoder.Quote(node.gameObjectPath));
+            json.Append(",\"name\":").Append(CommandContractValueEncoder.Quote(node.name));
+            json.Append(",\"activeSelf\":").Append(node.activeSelf ? "true" : "false");
+            json.Append(",\"childCount\":").Append(node.childCount);
+            json.Append(",\"components\":").Append(CommandContractValueEncoder.Encode(node.components));
         }
 
         // ── asset_get ──
@@ -561,7 +566,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                         if (comp == null) continue;
                         compInfos.Add(new AssetComponentBrief
                         {
-                            typeName = comp.GetType().Name,
+                            typeName = comp.GetType().FullName,
                             instanceId = comp.GetInstanceID(),
                             enabled = comp is Behaviour b ? b.enabled : true
                         });
@@ -667,7 +672,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     {
                         assetPath = assetPath,
                         gameObjectPath = locator,
-                        typeName = type.Name,
+                        typeName = type.FullName,
                         componentInstanceId = comp.GetInstanceID(),
                         properties = props.ToArray()
                     });
@@ -758,7 +763,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     {
                         assetPath = assetPath,
                         gameObjectPath = locator,
-                        typeName = type.Name,
+                        typeName = type.FullName,
                         modifiedFields = modifiedFields.ToArray()
                     });
                 },
@@ -826,7 +831,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     {
                         assetPath = assetPath,
                         gameObjectPath = locator,
-                        typeName = type.Name,
+                        typeName = type.FullName,
                         componentInstanceId = comp.GetInstanceID()
                     });
                 },
@@ -898,7 +903,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     {
                         assetPath = assetPath,
                         gameObjectPath = locator,
-                        typeName = type.Name,
+                        typeName = type.FullName,
                         removed = true
                     });
                 },

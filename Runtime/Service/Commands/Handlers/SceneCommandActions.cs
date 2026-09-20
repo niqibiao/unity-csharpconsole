@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using Zh1Zh1.CSharpConsole.Service.Commands.Core;
@@ -34,6 +35,9 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             public string scenePath = "";
             public HierarchyNode[] roots = Array.Empty<HierarchyNode>();
             public HierarchyNode[] dontDestroyOnLoadRoots = Array.Empty<HierarchyNode>();
+            public int nodeCount;
+            public bool truncated;
+            public string[] truncationReasons = Array.Empty<string>();
         }
 
         [CommandAction(
@@ -47,39 +51,28 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         {
             var scene = SceneManager.GetActiveScene();
             var rootObjects = scene.GetRootGameObjects();
-            var nodeCount = 0;
-            const int maxNodes = 5000;
-
-            var roots = new List<HierarchyNode>();
-            foreach (var root in rootObjects)
-            {
-                if (nodeCount >= maxNodes) break;
-                roots.Add(BuildNode(root.transform, depth, 0, includeComponents, ref nodeCount, maxNodes));
-            }
-
-            // Include DontDestroyOnLoad scene objects
-            var ddolRoots = new List<HierarchyNode>();
-            foreach (var ddolRoot in CommandHelpers.GetDontDestroyOnLoadRootObjects())
-            {
-                if (nodeCount >= maxNodes) break;
-                ddolRoots.Add(BuildNode(ddolRoot.transform, depth, 0, includeComponents, ref nodeCount, maxNodes));
-            }
+            var traversal = new HierarchyTraversal<HierarchyNode>(depth,
+                t => CreateNode(t, includeComponents), (node, children) => node.children = children);
+            var roots = traversal.Build(rootObjects);
+            var ddolRoots = traversal.Build(CommandHelpers.GetDontDestroyOnLoadRootObjects());
 
             var result = new HierarchyResult
             {
                 sceneName = scene.name,
                 scenePath = scene.path ?? "",
-                roots = roots.ToArray(),
-                dontDestroyOnLoadRoots = ddolRoots.ToArray()
+                roots = roots,
+                dontDestroyOnLoadRoots = ddolRoots,
+                nodeCount = traversal.NodeCount,
+                truncated = traversal.Truncated,
+                truncationReasons = traversal.TruncationReasons
             };
 
-            var ddolSuffix = ddolRoots.Count > 0 ? $" + {ddolRoots.Count} DontDestroyOnLoad root(s)" : "";
-            return CommandResponseFactory.Ok($"Hierarchy of '{result.sceneName}' ({nodeCount} nodes{ddolSuffix})", JsonUtility.ToJson(result));
+            var ddolSuffix = ddolRoots.Length > 0 ? $" + {ddolRoots.Length} DontDestroyOnLoad root(s)" : "";
+            return CommandResponseFactory.Ok($"Hierarchy of '{result.sceneName}' ({result.nodeCount} nodes{ddolSuffix})", Serialize(result));
         }
 
-        private static HierarchyNode BuildNode(Transform t, int maxDepth, int currentDepth, bool includeComponents, ref int nodeCount, int maxNodes)
+        private static HierarchyNode CreateNode(Transform t, bool includeComponents)
         {
-            nodeCount++;
             var go = t.gameObject;
             var node = new HierarchyNode
             {
@@ -95,24 +88,37 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 var names = new List<string>(comps.Length);
                 foreach (var c in comps)
                 {
-                    if (c != null) names.Add(c.GetType().Name);
+                    if (c != null) names.Add(c.GetType().FullName);
                 }
 
                 node.components = names.ToArray();
             }
 
-            if ((maxDepth < 0 || currentDepth < maxDepth) && t.childCount > 0)
-            {
-                var children = new List<HierarchyNode>(t.childCount);
-                for (var i = 0; i < t.childCount && nodeCount < maxNodes; i++)
-                {
-                    children.Add(BuildNode(t.GetChild(i), maxDepth, currentDepth + 1, includeComponents, ref nodeCount, maxNodes));
-                }
-
-                node.children = children.ToArray();
-            }
-
             return node;
+        }
+
+        private static string Serialize(HierarchyResult result)
+        {
+            var json = new StringBuilder();
+            json.Append("{\"sceneName\":").Append(CommandContractValueEncoder.Quote(result.sceneName));
+            json.Append(",\"scenePath\":").Append(CommandContractValueEncoder.Quote(result.scenePath));
+            json.Append(",\"nodeCount\":").Append(result.nodeCount);
+            json.Append(",\"truncated\":").Append(result.truncated ? "true" : "false");
+            json.Append(",\"truncationReasons\":").Append(CommandContractValueEncoder.Encode(result.truncationReasons));
+            json.Append(",\"roots\":");
+            HierarchyTraversal<HierarchyNode>.WriteNodes(json, result.roots, WriteNodeFields, node => node.children);
+            json.Append(",\"dontDestroyOnLoadRoots\":");
+            HierarchyTraversal<HierarchyNode>.WriteNodes(json, result.dontDestroyOnLoadRoots, WriteNodeFields, node => node.children);
+            return json.Append('}').ToString();
+        }
+
+        private static void WriteNodeFields(StringBuilder json, HierarchyNode node)
+        {
+            json.Append("\"instanceId\":").Append(node.instanceId);
+            json.Append(",\"name\":").Append(CommandContractValueEncoder.Quote(node.name));
+            json.Append(",\"activeSelf\":").Append(node.activeSelf ? "true" : "false");
+            json.Append(",\"childCount\":").Append(node.childCount);
+            json.Append(",\"components\":").Append(CommandContractValueEncoder.Encode(node.components));
         }
     }
 }

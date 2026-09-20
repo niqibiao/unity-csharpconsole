@@ -17,7 +17,8 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
         // Caller is already on the main thread via the framework's runOnMainThread default.
         internal static CommandResponse RunCommand<TResult>(
             Func<(string error, TResult result)> execute,
-            Func<TResult, string> summarize)
+            Func<TResult, string> summarize,
+            Func<TResult, string> serialize = null)
             where TResult : class
         {
             var result = execute();
@@ -25,7 +26,8 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
             if (result.error != null)
                 return CommandResponseFactory.ValidationError(result.error);
 
-            return CommandResponseFactory.Ok(summarize(result.result), JsonUtility.ToJson(result.result));
+            return CommandResponseFactory.Ok(summarize(result.result),
+                serialize != null ? serialize(result.result) : JsonUtility.ToJson(result.result));
         }
 
         public static GameObject ResolveGameObject(string path, int instanceId, out string error)
@@ -183,7 +185,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                 }
             }
 
-            error = $"Type '{typeName}' could not be resolved";
+            error = $"Type '{typeName}' could not be resolved. Use the namespace-qualified typeName returned by inspection commands.";
             return null;
         }
 

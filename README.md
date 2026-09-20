@@ -249,7 +249,7 @@ Tab completion works for both command names and argument names.
 | | `get` | Get serialized field data of a component |
 | | `modify` | Modify serialized fields of a component |
 | **transform** | `set` | Set position, rotation, and/or scale (local or world) |
-| **scene** | `hierarchy` | Get the full scene hierarchy tree, optionally with component info |
+| **scene** | `hierarchy` | Inspect the scene hierarchy tree, optionally with component info |
 | **prefab** | `create` | Create a prefab asset from a scene GameObject |
 | | `instantiate` | Instantiate a prefab into the active scene |
 | | `unpack` | Unpack a prefab instance |
@@ -303,6 +303,12 @@ Tab completion works for both command names and argument names.
 > 39 actions need the editor and say so when a player receives them. The other 23 also answer in a player: `runtime/info`, `scene/hierarchy`, `gameobject/*`, `transform/set`, `component/*`, `screenshot/game_view`, `profiler/start|stop|status`, `session/*` and `command/*`. A player has no undo stack, so mutations made there cannot be reversed, and `component/get|modify` only covers components the project declares — built-in components keep their state in native properties rather than serialized fields.
 >
 > `prefab/asset_*` edit the asset on disk without opening a scene. They address children by the identity selector returned from `asset_hierarchy` (`gid:<guid>:<localFileId>`), not by name path.
+
+In 2.4.0, scene and prefab hierarchy results report `nodeCount`, `truncated`, and
+`truncationReasons`: `requested_depth`, `node_limit` (5000 nodes), or `depth_limit`
+(depth 128, with the root at 0). `depth=-1` retains the safety limits. Component
+inspection and hierarchy results return namespace-qualified type names that can
+be passed directly as `typeName`, such as `Game.GameEntry`.
 >
 > `editor/test.*` require `com.unity.test-framework` in the consuming project; without it they stay registered but return an explanatory error.
 

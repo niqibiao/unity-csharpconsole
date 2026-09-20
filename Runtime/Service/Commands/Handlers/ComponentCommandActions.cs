@@ -71,7 +71,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     return (error: (string)null, result: new AddResult
                     {
                         gameObjectInstanceId = go.GetInstanceID(),
-                        typeName = type.Name,
+                        typeName = type.FullName,
                         componentInstanceId = comp.GetInstanceID()
                     });
                 },
@@ -132,7 +132,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     return (error: (string)null, result: new RemoveResult
                     {
                         gameObjectInstanceId = go.GetInstanceID(),
-                        typeName = type.Name,
+                        typeName = type.FullName,
                         removed = true
                     });
                 },
@@ -229,7 +229,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     return (error: (string)null, result: new GetResult
                     {
                         gameObjectInstanceId = go.GetInstanceID(),
-                        typeName = type.Name,
+                        typeName = type.FullName,
                         componentInstanceId = comp.GetInstanceID(),
                         properties = props.ToArray()
                     });
@@ -356,7 +356,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                     return (error: (string)null, result: new ModifyResult
                     {
                         gameObjectInstanceId = go.GetInstanceID(),
-                        typeName = type.Name,
+                        typeName = type.FullName,
                         modifiedFields = modifiedFields.ToArray()
                     });
                 },

@@ -314,7 +314,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Handlers
                         if (comp == null) continue;
                         compInfos.Add(new ComponentInfo
                         {
-                            typeName = comp.GetType().Name,
+                            typeName = comp.GetType().FullName,
                             instanceId = comp.GetInstanceID(),
                             enabled = comp is Behaviour b ? b.enabled : true
                         });
