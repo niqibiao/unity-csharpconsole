@@ -172,7 +172,7 @@ Runtime 提交在 Editor 中编译、在 Player 中运行。默认每次 Player 
 
 **Export ZIP Path** 旁的 **Override** 默认不勾选，此时路径框灰显默认路径，导出到 Player 产物旁。预览使用当前平台保存的构建位置，尚未设置时显示 `<Player output directory>/CSharpConsoleCompileSet.zip`；实际路径随每次构建的输出位置变化。勾选 **Override** 后可以编辑 ZIP 文件路径，例如 `Build/CompileSets/Player.zip`，也可以点击 **Browse...** 选择。支持绝对路径和相对工程根目录的路径，缺少的目录会自动创建；取消勾选会保留自定义路径，方便再次启用。复选框和路径分别保存在同一 JSON 文件的 `overrideExportCompileSetPath` 和 `exportCompileSetPath` 字段中，每次导出会覆盖所选路径的 ZIP。
 
-带 `build-guid.txt` 的目录被视为编译和补全所用的完整引用集合，不会额外加入 Editor 专用程序集。空集合或无法读取的 DLL 会明确报错。为兼容已有客户端，REPL 的 `--runtime-dll-path` 和 `--runtime-defines` 参数仍可使用；不含构建 GUID 的普通 DLL 目录会替换同名程序集。导出的 `mscorlib.dll` 使用目标平台未裁剪的 BCL，以支持 Roslyn 脚本编译，因此对齐不能提前发现所有 BCL 成员裁剪造成的运行错误。
+带 `build-guid.txt` 的目录被视为编译和补全所用的完整引用集合，不会额外加入 Editor 专用程序集。空集合或无法读取的 DLL 会明确报错。REPL 的 `--runtime-dll-path` 和 `--runtime-defines` 参数用于显式覆盖；不含构建 GUID 的普通 DLL 目录会替换同名程序集。导出的 `mscorlib.dll` 使用目标平台未裁剪的 BCL，以支持 Roslyn 脚本编译，因此对齐不能提前发现所有 BCL 成员裁剪造成的运行错误。
 
 Editor 按 Player 构建做决定。某个构建第一次收到 runtime 提交而 Editor 尚无决定时，会以 `[REPL ALIGNMENT REQUIRED]` 拒绝，回答一次即可：
 
@@ -183,7 +183,12 @@ Editor 按 Player 构建做决定。某个构建第一次收到 runtime 提交�
 
 决定由 Editor 按 Player 的构建 GUID 保存，之后针对该构建的所有提交（无论来自本 REPL 还是其他客户端）都直接沿用，不再询问。随时可以再次执行 `/compileset` 换一个 zip，或在对齐与跳过之间切换。Player 换成新构建后会重新询问。与运行中 Player 不属于同一构建的 zip 会被拒绝登记。决定与已登记的编译集保存在工程的 `Library/CSharpConsole/CompileSets/` 下，Editor 重启后仍然有效；删除 `Library/` 会清空它们，届时 Editor 会重新询问。
 
-> 在此功能之前构建的 Player 不上报构建 GUID，按原方式编译。热更新后，可解压该构建的 zip、替换更新过的 DLL，保留压缩包根目录的 `build-guid.txt` 和 `runtime-defines.txt`，重新打包并通过 `/compileset` 登记。该更新对使用此构建的所有会话生效。
+> Player 必须上报有效构建 GUID；旧版 Player 需要使用匹配版本的包重新构建。热更新后，可解压该构建的 zip、替换更新过的 DLL，保留压缩包根目录的 `build-guid.txt` 和 `runtime-defines.txt`，重新打包并通过 `/compileset` 登记。该更新对使用此构建的所有会话生效。
+
+运行时提交确认会话对应的构建后，补全也会读取该构建当前的对齐决定。重新登记或
+跳过对齐在下一次补全请求时生效，无需先执行代码；编译集变化会清除旧编译器的
+提交状态。显式指定的 DLL 路径保持优先。登记请求指定 Player 时，目标必须返回
+有效的健康数据；不可达的目标或误填的 Editor 地址会在写入决定前被拒绝。
 
 ### 快捷键
 

@@ -25,10 +25,6 @@ namespace Zh1Zh1.CSharpConsole.Editor
             {
                 var json = File.ReadAllText(FilePath);
                 JsonUtility.FromJsonOverwrite(json, settings);
-                // Preserve custom paths saved before the Override checkbox existed.
-                // A second pass lets an explicitly saved false take precedence.
-                settings.overrideExportCompileSetPath = !string.IsNullOrWhiteSpace(settings.exportCompileSetPath);
-                JsonUtility.FromJsonOverwrite(json, settings);
             }
             return settings;
         }

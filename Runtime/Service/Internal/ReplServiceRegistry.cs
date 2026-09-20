@@ -12,6 +12,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
         private readonly ConcurrentDictionary<(string uuid, string path), IREPLCompiler> _compilers = new ConcurrentDictionary<(string uuid, string path), IREPLCompiler>();
         private readonly ConcurrentDictionary<string, double> _lastAccessTimes = new ConcurrentDictionary<string, double>();
         private readonly ConcurrentDictionary<string, string> _runtimeCompileSets = new ConcurrentDictionary<string, string>();
+        private readonly ConcurrentDictionary<string, string> _runtimeBuildGuids = new ConcurrentDictionary<string, string>();
         private const double DEFAULT_IDLE_TIMEOUT_SECONDS = 21600.0; // 6 hours
 
         /// <summary>
@@ -52,11 +53,24 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
         /// before its first submission -- are dropped rather than left holding their
         /// references.
         /// </summary>
-        public void UseRuntimeCompileSet(string uuid, string compileSetPath)
+        public void UseRuntimeCompileSet(string uuid, string compileSetPath, string registeredBuildGuid = null)
         {
             var sessionId = uuid ?? "";
+            var buildChanged = registeredBuildGuid != null
+                && _runtimeBuildGuids.TryGetValue(sessionId, out var previousBuildGuid)
+                && !CompileSetStore.SameBuild(previousBuildGuid, registeredBuildGuid);
+            if (registeredBuildGuid != null)
+            {
+                _runtimeBuildGuids[sessionId] = registeredBuildGuid;
+            }
+            else
+            {
+                _runtimeBuildGuids.TryRemove(sessionId, out _);
+            }
+
+            TouchSession(sessionId);
             var path = compileSetPath ?? "";
-            if (_runtimeCompileSets.TryGetValue(sessionId, out var current) && current == path)
+            if (!buildChanged && _runtimeCompileSets.TryGetValue(sessionId, out var current) && current == path)
             {
                 return;
             }
@@ -65,17 +79,32 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
             foreach (var key in _compilers.Keys)
             {
                 if (string.Equals(key.uuid, sessionId, StringComparison.Ordinal)
-                    && !string.Equals(key.path, path, StringComparison.Ordinal))
+                    && (buildChanged || !string.Equals(key.path, path, StringComparison.Ordinal)))
                 {
                     _compilers.TryRemove(key, out _);
                 }
             }
         }
 
-        /// <summary>The compile set the session's last runtime submission used, or null when it has made none.</summary>
+        /// <summary>
+        /// Resolve a bound build's current decision for completion, including registrations
+        /// made by another client. Explicit DLL paths keep their last-submission behavior.
+        /// A forgotten decision must not fall back to Editor references.
+        /// </summary>
         public string FindRuntimeCompileSet(string uuid)
         {
-            return _runtimeCompileSets.TryGetValue(uuid ?? "", out var path) ? path : null;
+            var sessionId = uuid ?? "";
+            if (_runtimeBuildGuids.TryGetValue(sessionId, out var buildGuid))
+            {
+                if (!CompileSetStore.TryLookup(buildGuid, out var setDirectory))
+                {
+                    throw new InvalidOperationException($"[REPL ALIGNMENT REQUIRED] No compile set decision remains for build {buildGuid}. Register its compile set or skip alignment before requesting completion.");
+                }
+
+                UseRuntimeCompileSet(sessionId, setDirectory, buildGuid);
+            }
+
+            return _runtimeCompileSets.TryGetValue(sessionId, out var path) ? path : null;
         }
 
         public bool RemoveEditorCompiler(string sessionId)
@@ -114,6 +143,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
 
             _lastAccessTimes.TryRemove(sessionId, out _);
             _runtimeCompileSets.TryRemove(sessionId, out _);
+            _runtimeBuildGuids.TryRemove(sessionId, out _);
             return removedAny;
         }
 
@@ -150,6 +180,8 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
 
         public void RemoveCompilersForSession(string sessionId)
         {
+            _runtimeCompileSets.TryRemove(sessionId ?? "", out _);
+            _runtimeBuildGuids.TryRemove(sessionId ?? "", out _);
             foreach (var key in _compilers.Keys)
             {
                 if (string.Equals(key.uuid, sessionId, StringComparison.Ordinal))
@@ -176,6 +208,7 @@ namespace Zh1Zh1.CSharpConsole.Service.Internal
             _compilers.Clear();
             _lastAccessTimes.Clear();
             _runtimeCompileSets.Clear();
+            _runtimeBuildGuids.Clear();
         }
 
         public int EvictIdleSessions(double idleTimeoutSeconds = DEFAULT_IDLE_TIMEOUT_SECONDS)

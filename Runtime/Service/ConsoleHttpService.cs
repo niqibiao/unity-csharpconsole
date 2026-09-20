@@ -1350,14 +1350,19 @@ namespace Zh1Zh1.CSharpConsole.Service
                 {
                     // Resolved before compiling rather than after: the question is what to
                     // compile against, so there is nothing to learn from compiling first.
-                    var (refusal, compileSetPath) = await ResolveRuntimeCompileSet(targetIP, targetPort, runtimeDllPath, uuid);
+                    var (refusal, compileSetPath, registeredBuildGuid) = await ResolveRuntimeCompileSet(targetIP, targetPort, runtimeDllPath, uuid);
+                    if (refusal == null || registeredBuildGuid != null)
+                    {
+                        // Keep the build binding even when its first submission needs a
+                        // decision, so completion picks up a later registration immediately.
+                        s_ReplServiceRegistry.UseRuntimeCompileSet(uuid, compileSetPath, registeredBuildGuid);
+                    }
                     if (refusal != null)
                     {
                         await WriteEnvelopeResponseAsync(context, refusal, "RuntimeCompile");
                         return;
                     }
 
-                    s_ReplServiceRegistry.UseRuntimeCompileSet(uuid, compileSetPath);
                     var compiler = s_ReplServiceRegistry.FetchRuntimeREPLCompiler(uuid, compileSetPath, s_RuntimeREPLCompilerGenerator);
                     var (compileBytes, compileScriptClsName, errorMsg) = compiler.Compile(code, defines, defaultUsing);
                     var compilerNotice = ConsumeCompilerNotice(compiler);
@@ -1435,55 +1440,51 @@ namespace Zh1Zh1.CSharpConsole.Service
         /// different build than the player's. Otherwise the player's build is looked up in
         /// <see cref="CompileSetStore"/>: a registered set is used, a skipped build compiles
         /// unaligned, and a build nothing was decided for is refused until one of the two
-        /// is. A player that does not report its build compiles unaligned as before --
-        /// there is nothing to look up. A player that cannot be asked is not compiled for
-        /// at all: the submission would be forwarded to that same player.
+        /// is. The player must report a valid build identity before the submission is
+        /// compiled and forwarded to it.
         ///
         /// The player is asked on every submission rather than once per session: a session
         /// outlives the player it was opened against, and a player restarted from another
         /// build is the case this exists to catch.
         /// </summary>
-        private static async Task<(HttpResponseEnvelope refusal, string compileSetPath)> ResolveRuntimeCompileSet(string ip, string port, string runtimeDllPath, string uuid)
+        private static async Task<(HttpResponseEnvelope refusal, string compileSetPath, string registeredBuildGuid)> ResolveRuntimeCompileSet(string ip, string port, string runtimeDllPath, string uuid)
         {
             if (string.IsNullOrEmpty(ip))
             {
-                return (null, runtimeDllPath);
+                return (null, runtimeDllPath, null);
             }
 
             var setBuildGuid = CompileSetStore.ReadBuildGuid(runtimeDllPath);
-            if (!string.IsNullOrEmpty(runtimeDllPath) && string.IsNullOrEmpty(setBuildGuid))
-            {
-                return (null, runtimeDllPath);
-            }
-
             var (playerBuildGuid, failure) = await FetchPlayerBuildGuid(ip, port);
             if (failure != null)
             {
                 // Worded and classified as the forward failure it stands in for.
                 var text = ConsoleLog.Format($"Forward failed: could not reach the player at {ip}:{port} to read its build: {failure}");
-                return (s_EnvelopeFactory.CreateTextEnvelope("execute", text, uuid), null);
+                return (s_EnvelopeFactory.CreateTextEnvelope("execute", text, uuid), null, null);
             }
 
-            if (!CompileSetStore.IsValidBuildGuid(playerBuildGuid))
+            if (!string.IsNullOrEmpty(runtimeDllPath) && string.IsNullOrEmpty(setBuildGuid))
             {
-                return (null, runtimeDllPath);
+                // A caller may explicitly supply unaligned DLLs, but the target
+                // still has to identify itself using the current health protocol.
+                return (null, runtimeDllPath, null);
             }
 
             if (setBuildGuid != null)
             {
                 return CompileSetStore.SameBuild(playerBuildGuid, setBuildGuid)
-                    ? (null, runtimeDllPath)
-                    : (Refuse(DescribeBuildMismatch(playerBuildGuid, setBuildGuid, runtimeDllPath), uuid), null);
+                    ? (null, runtimeDllPath, null)
+                    : (Refuse(DescribeBuildMismatch(playerBuildGuid, setBuildGuid, runtimeDllPath), uuid), null, null);
             }
 
             if (CompileSetStore.TryLookup(playerBuildGuid, out var setDirectory))
             {
-                return (null, setDirectory ?? "");
+                return (null, setDirectory ?? "", playerBuildGuid);
             }
 
             return (Refuse("[REPL ALIGNMENT REQUIRED]\n" +
                            $"This player is build {playerBuildGuid}, and this editor has no compile set registered for it.\n" +
-                           "Register the CSharpConsoleCompileSet.zip exported beside that build (a file path or a URL), or skip alignment for this build.", uuid), null);
+                           "Register the CSharpConsoleCompileSet.zip exported beside that build (a file path or a URL), or skip alignment for this build.", uuid), null, playerBuildGuid);
         }
 
         /// <summary>
@@ -1528,10 +1529,17 @@ namespace Zh1Zh1.CSharpConsole.Service
                 using var body = new MemoryStream();
                 await context.Request.InputStream.CopyToAsync(body);
 
-                var playerBuildGuid = string.IsNullOrEmpty(targetIP) ? null : (await FetchPlayerBuildGuid(targetIP, targetPort)).buildGuid;
-                response = skip
-                    ? SkipCompileSet(targetIP, targetPort, playerBuildGuid)
-                    : RegisterCompileSet(body.ToArray(), playerBuildGuid);
+                var (playerBuildGuid, failure) = string.IsNullOrEmpty(targetIP)
+                    ? ((string)null, (string)null)
+                    : await FetchPlayerBuildGuid(targetIP, targetPort);
+                // An explicitly addressed player must answer before its build can be
+                // checked. Only requests without a target may register a set offline.
+                response = failure != null
+                    ? CompileSetFailure("validation_error",
+                        $"Could not decide alignment: the player at {targetIP}:{targetPort} could not be reached to read its build: {failure}")
+                    : skip
+                        ? SkipCompileSet(playerBuildGuid)
+                        : RegisterCompileSet(body.ToArray(), playerBuildGuid);
             }
             catch (Exception e)
             {
@@ -1542,16 +1550,11 @@ namespace Zh1Zh1.CSharpConsole.Service
             await WriteEnvelopeResponseAsync(context, response, "CompileSet");
         }
 
-        private static HttpResponseEnvelope SkipCompileSet(string ip, string port, string playerBuildGuid)
+        private static HttpResponseEnvelope SkipCompileSet(string playerBuildGuid)
         {
             if (playerBuildGuid == null)
             {
-                return CompileSetFailure("validation_error", $"Could not skip alignment: the player at {ip}:{port} could not be reached to ask which build it is.");
-            }
-
-            if (!CompileSetStore.IsValidBuildGuid(playerBuildGuid))
-            {
-                return CompileSetFailure("validation_error", $"Nothing to skip: the player at {ip}:{port} does not report its build, so it is already compiled for without alignment.");
+                return CompileSetFailure("validation_error", "Skipping alignment requires targetIP and targetPort identifying a running Player.");
             }
 
             CompileSetStore.Skip(playerBuildGuid);
@@ -1572,7 +1575,7 @@ namespace Zh1Zh1.CSharpConsole.Service
                 return CompileSetFailure("validation_error", $"This zip does not name the build it came from ({CompileSetStore.GuidFileName} is missing at its root). Use the CSharpConsoleCompileSet.zip a build exports beside the player.");
             }
 
-            if (CompileSetStore.IsValidBuildGuid(playerBuildGuid) && !CompileSetStore.SameBuild(playerBuildGuid, setBuildGuid))
+            if (playerBuildGuid != null && !CompileSetStore.SameBuild(playerBuildGuid, setBuildGuid))
             {
                 return CompileSetFailure("validation_error", $"Not registered: this zip is from build {setBuildGuid}, but the player is build {playerBuildGuid}. Use the zip exported beside the player that is running.");
             }
@@ -1589,10 +1592,8 @@ namespace Zh1Zh1.CSharpConsole.Service
         }
 
         /// <summary>
-        /// The build GUID the player reports, empty when it reports none (a player built
-        /// before the package carried its identity); or, when it could not be asked, why not.
-        /// Every player has answered health since the first release, so failing to is a
-        /// fault, not a player too old to know.
+        /// The valid build GUID the player reports, or the reason its identity could
+        /// not be verified. A player without the current health contract must be rebuilt.
         /// </summary>
         private static async Task<(string buildGuid, string failure)> FetchPlayerBuildGuid(string ip, string port)
         {
@@ -1608,9 +1609,14 @@ namespace Zh1Zh1.CSharpConsole.Service
                 var health = envelope == null || string.IsNullOrEmpty(envelope.dataJson)
                     ? null
                     : JsonUtility.FromJson<HealthResponse>(envelope.dataJson);
-                return health == null
-                    ? (null, "health answered without its data")
-                    : (health.buildGuid ?? "", null);
+                if (envelope == null || !envelope.ok || health == null || !health.ok || health.isEditor)
+                {
+                    return (null, "health answered without valid player data");
+                }
+
+                return CompileSetStore.IsValidBuildGuid(health.buildGuid)
+                    ? (health.buildGuid, null)
+                    : (null, "player health has no valid build GUID; rebuild the Player with the matching package version");
             }
             catch (Exception e)
             {

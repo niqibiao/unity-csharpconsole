@@ -173,7 +173,7 @@ Toggle automatic export in **Edit > Project Settings > C# Console > Export Compi
 
 Under **Export ZIP Path**, leave **Override** unchecked to show the default path in a disabled field and export beside the Player. The preview uses the current target's saved build location when available; otherwise it shows `<Player output directory>/CSharpConsoleCompileSet.zip`. The actual path follows each build's output. Check **Override** to edit the ZIP file path, for example `Build/CompileSets/Player.zip`, or use **Browse...**. Absolute paths and paths relative to the project root are supported; missing folders are created. Turning Override off preserves your custom path for later. The checkbox and path are saved as `overrideExportCompileSetPath` and `exportCompileSetPath` in the same JSON file. Each export replaces the ZIP at the selected path.
 
-A directory carrying `build-guid.txt` is treated as a complete reference set for compilation and completion; Editor-only assemblies are not added. An empty set or an unreadable DLL reports an error. For existing clients, the `--runtime-dll-path` and `--runtime-defines` REPL arguments remain supported; plain DLL directories without a build GUID replace same-named references. The exported `mscorlib.dll` uses the target's unstripped BCL to support Roslyn script compilation, so alignment cannot detect every stripped BCL member before execution.
+A directory carrying `build-guid.txt` is treated as a complete reference set for compilation and completion; Editor-only assemblies are not added. An empty set or an unreadable DLL reports an error. The `--runtime-dll-path` and `--runtime-defines` REPL arguments provide explicit overrides; plain DLL directories without a build GUID replace same-named references. The exported `mscorlib.dll` uses the target's unstripped BCL to support Roslyn script compilation, so alignment cannot detect every stripped BCL member before execution.
 
 The Editor decides per Player build. The first runtime submission for a build it has no decision for is refused with `[REPL ALIGNMENT REQUIRED]`; answer it once:
 
@@ -184,7 +184,14 @@ The Editor decides per Player build. The first runtime submission for a build it
 
 The decision is kept by the Editor keyed by the Player's build GUID, so every later submission for that build — from this REPL or any other client — uses it without asking again. Run `/compileset` again at any time to register a different zip or to switch between aligned and skipped. A Player restarted from a new build asks again. A zip from a different build than the running Player is refused rather than registered. Decisions and registered sets are stored under the project's `Library/CSharpConsole/CompileSets/`, so they survive Editor restarts; deleting `Library/` clears them and the Editor asks again.
 
-> Players built before this feature do not report a build GUID and are compiled for as before. For hot-updated code, unpack the build's zip, replace the updated DLLs while preserving `build-guid.txt` and `runtime-defines.txt` at the archive root, then repack and register it with `/compileset`. This updates the registered set for all sessions using that build.
+> Players must report a valid build GUID; rebuild older Players with the matching package version. For hot-updated code, unpack the build's zip, replace the updated DLLs while preserving `build-guid.txt` and `runtime-defines.txt` at the archive root, then repack and register it with `/compileset`. This updates the registered set for all sessions using that build.
+
+After a runtime submission identifies a session's build, completion also reads
+that build's current decision. Re-registering or skipping takes effect on the
+next completion request, without another submission. Changing the set clears
+the old compiler's submission state. Explicit DLL-path overrides remain explicit.
+When a registration names a Player, that Player must return valid health data;
+an unreachable target or an Editor endpoint is rejected before storing a decision.
 
 ### Key Bindings
 
