@@ -101,7 +101,7 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
                     defines = defines,
                 };
 
-                CompileSetExporter.Export(record, report.summary.outputPath, exportPath);
+                CompileSetExporter.Export(record, exportPath);
             }
             catch (Exception e)
             {

@@ -167,7 +167,9 @@ Python 3.7+ is required. Python dependencies (`requests`, `prompt_toolkit`, `Pyg
 
 Runtime code is compiled in the Editor and runs in the Player. A compile set uses the Player build's assemblies and defines for compilation, reducing mismatches caused by stripping or different `#if` branches.
 
-Player builds export `CSharpConsoleCompileSet.zip` beside the output by default. Disable export or change its path in **Edit > Project Settings > C# Console**.
+Player builds export to `Library/CSharpConsoleCompileSet.zip` under the Unity project root by default. Disable export or enable **Override** to change its path in **Edit > Project Settings > C# Console**. Custom paths must be relative to the project root, such as `Builds/Console.zip` or `../Exports/Console.zip`; absolute paths are not supported. **Browse** converts the selected location to a relative path, so it must be on the same drive or network share as the project. Missing folders are created automatically. Existing absolute-path overrides must be changed to relative paths or have **Override** turned off before exporting.
+
+Each export replaces the ZIP at the selected path. Copy the ZIP elsewhere if you need to keep it for a particular build; the default export is also removed when you delete the project's `Library` directory. Disabling export leaves existing ZIPs in place.
 
 When the REPL shows `[REPL ALIGNMENT REQUIRED]`, register the ZIP from that Player build:
 

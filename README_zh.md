@@ -166,7 +166,9 @@ python "Editor/ExternalTool~/console-client/csharp_repl.py" \
 
 Runtime 代码在 Editor 中编译、在 Player 中运行。编译集让编译使用该 Player 构建的程序集和宏定义，减少裁剪或 `#if` 分支不同造成的不匹配。
 
-Player 构建默认在产物旁导出 `CSharpConsoleCompileSet.zip`。可在 **Edit > Project Settings > C# Console** 关闭导出或修改路径。
+Player 构建默认导出到 Unity 项目根目录下的 `Library/CSharpConsoleCompileSet.zip`。可在 **Edit > Project Settings > C# Console** 关闭导出，或开启 **Override** 自定义路径。自定义路径仅支持相对于项目根目录的路径，例如 `Builds/Console.zip` 或 `../Exports/Console.zip`，不支持绝对路径。**Browse** 会将选择的位置转换为相对路径，因此只能选择与项目位于同一盘符或网络共享下的位置。缺失的目录会自动创建。已有的绝对路径配置需改为相对路径，或关闭 **Override** 后才能导出。
+
+每次导出会覆盖所选路径的 ZIP；如需保留某次构建的编译集，请另行复制保存。删除项目的 `Library` 目录也会删除默认导出的 ZIP。关闭导出不会删除已有 ZIP。
 
 REPL 提示 `[REPL ALIGNMENT REQUIRED]` 时，登记该 Player 构建的 ZIP：
 

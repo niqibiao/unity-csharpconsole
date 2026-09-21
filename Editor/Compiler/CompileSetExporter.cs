@@ -7,7 +7,7 @@ using Zh1Zh1.CSharpConsole.Service;
 namespace Zh1Zh1.CSharpConsole.Editor.Compiler
 {
     /// <summary>
-    /// Writes a build's compile set as a zip, next to the player by default.
+    /// Writes a build's compile set as a zip in the project's Library directory by default.
     ///
     /// A submission bound for a player is compiled in an editor but runs in the player.
     /// Compiled against the editor's own assemblies and symbols, it proves nothing: code
@@ -23,20 +23,16 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
     internal static class CompileSetExporter
     {
         /// <summary>
-        /// Beside the player rather than inside it: the zip is for whoever debugs the
-        /// build, not for the build to load, and a player directory is often copied or
-        /// packaged wholesale.
+        /// The zip is for whoever debugs the build. It is stored in Library by default
+        /// and is replaced by the next export to the same path.
         /// </summary>
         internal const string FileName = "CSharpConsoleCompileSet.zip";
+        internal const string DefaultRelativePath = "Library/" + FileName;
 
-        internal static string GetDefaultExportPath(string playerOutputPath)
+        internal static string GetDefaultExportPath()
         {
-            if (string.IsNullOrWhiteSpace(playerOutputPath))
-            {
-                return null;
-            }
-            var directory = Path.GetDirectoryName(playerOutputPath);
-            return string.IsNullOrEmpty(directory) ? null : Path.Combine(directory, FileName);
+            return Path.Combine(Directory.GetParent(UnityEngine.Application.dataPath).FullName,
+                DefaultRelativePath);
         }
 
         /// <summary>
@@ -50,7 +46,7 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
         /// </summary>
         private const string SubstitutedAssembly = "mscorlib.dll";
 
-        internal static void Export(PlayerBuildRecord record, string playerOutputPath, string exportPath = null)
+        internal static void Export(PlayerBuildRecord record, string exportPath = null)
         {
             if (string.IsNullOrEmpty(record.strippedAssembliesPath) || !Directory.Exists(record.strippedAssembliesPath))
             {
@@ -61,12 +57,7 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
             var zipPath = exportPath;
             if (string.IsNullOrEmpty(zipPath))
             {
-                zipPath = GetDefaultExportPath(playerOutputPath);
-                if (zipPath == null)
-                {
-                    ConsoleLog.Warning($"Could not work out where to put {FileName}: this build reported no output path.");
-                    return;
-                }
+                zipPath = GetDefaultExportPath();
             }
 
             Directory.CreateDirectory(Path.GetDirectoryName(zipPath));
