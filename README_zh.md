@@ -11,7 +11,7 @@
 [![UPM](https://img.shields.io/badge/UPM-Package-brightgreen.svg)](package.json)
 
 在 Unity Editor 和 Runtime 中即时执行 C# 代码 — 无需等待编译，无需样板代码，<br/>
-完整访问项目运行时状态。**Editor 零配置开箱即用，Runtime 搭配 HybridCLR 即刻运行。**
+完整访问项目运行时状态。**Editor 零配置开箱即用，Development Player 自动启动。**
 
 [功能特性](#功能特性) · [安装](#安装) · [快速开始](#快速开始) · [REPL 使用](#repl-使用) · [扩展命令](#扩展命令)
 
@@ -102,7 +102,7 @@ m.mp34  →  m.MultiplyPoint3x4
 }
 ```
 
-> **注意：** 两个 asmdef 均设置了 `autoReferenced: false`。如需引用本包，请在 asmdef 中显式添加 `Zh1Zh1.CSharpConsole.Runtime`（或 `.Editor`）。
+> **注意：** 如需调用本包 API，请在 asmdef 中显式引用 `Zh1Zh1.CSharpConsole.Runtime`（或 `.Editor`）。
 
 ## ▶ 快速开始
 
@@ -115,17 +115,13 @@ m.mp34  →  m.MultiplyPoint3x4
 | **Console > C#Console** | 本地 Editor |
 | **Console > RemoteC#Console** | 远程 Editor / Player |
 
-### Runtime — 一行代码，无需额外配置
+### Runtime — 自动启动
 
-在 Player 构建中启用远程控制台，只需一行调用：
+Development Player 在第一个场景加载后启动 HTTP 服务，项目脚本无需引用本包。非 Development 的 Player 不包含运行时服务。
 
-```csharp
-#if DEVELOPMENT_BUILD
-Zh1Zh1.CSharpConsole.RuntimeInitializer.ConsoleInitialize();
-#endif
-```
+如需关闭自动启动，在目标平台的 **Scripting Define Symbols** 中添加 `ZH1ZH1_CSC_DISABLE_AUTOSTART`。Development Player 仍可在主线程调用 `Zh1Zh1.CSharpConsole.RuntimeInitializer.ConsoleInitialize()`，以手动启动或提前启动服务。重复调用不会启动多个服务。
 
-Runtime 执行仅依赖 **HybridCLR** 的 `Assembly.Load` 能力实现 IL2CPP 下的程序集加载(无需任何额外配置)。
+内置命令不需要 HybridCLR。在 IL2CPP Player 中执行任意 C# 提交需要 **HybridCLR** 提供 `Assembly.Load` 能力。
 
 > Runtime 程序集受 `DEVELOPMENT_BUILD || UNITY_EDITOR` 条件编译约束
 

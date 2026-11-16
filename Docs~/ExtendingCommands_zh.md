@@ -16,6 +16,9 @@ handler 会被归入 `builtin`；命令作者不需要、也不能自行选择�
 }
 ```
 
+Runtime API 只在 Editor 和 Development Player 中可用。程序集如果也用于正式包，
+请把引用 Runtime API 的代码放在 `#if UNITY_EDITOR || DEVELOPMENT_BUILD` 中。
+
 ## 第二步 — 编写命令 Handler
 
 ### 最简形式 — 返回 `(bool, string)` 元组
@@ -36,6 +39,12 @@ public static class MyCommands
 ```
 
 返回 `(true, "消息")` 表示成功，`(false, "消息")` 表示失败。
+
+### 托管代码裁剪
+
+`[CommandAction]` 继承 `PreserveAttribute`。Unity 处理某个程序集时会保留带此标注
+的方法。没有被引用的程序集仍可能被整个移除；用 `typeof` 显式注册 handler 可让
+注册代码引用到该程序集。
 
 ### 完整形式 — 返回 `CommandResponse` 附带结构化数据
 
@@ -244,29 +253,39 @@ public static class MyEditorCommands
 
 ## 配置命令发现
 
-默认框架会扫描所有已加载程序集中的 `[CommandAction]` attribute。大型项目中可以限制扫描范围：
+默认只扫描已加载且引用 Runtime 的程序集。大型项目可以显式注册包含自定义命令的
+类型，避免在第一次请求时枚举程序集的全部类型：
 
 ```csharp
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+using UnityEngine;
 using Zh1Zh1.CSharpConsole.Service.Commands.Core;
 
-// 在 ConsoleInitialize() 之前调用
-CommandDiscoveryOptions.Configure(
-    new CommandDiscoveryOptions
+internal static class MyCommandDiscovery
+{
+#if UNITY_EDITOR
+    [UnityEditor.InitializeOnLoadMethod]
+#else
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+#endif
+    private static void Configure()
     {
-        assemblyNamePrefixes = new[] { "MyGame", "MyCompany" },
-        scanReferencingAssembliesOnly = true,
-        includeEditorAssemblies = false
-    },
-    assemblyFilter: null);
-
-Zh1Zh1.CSharpConsole.RuntimeInitializer.ConsoleInitialize();
+        CommandDiscoveryOptions.Configure(new CommandDiscoveryOptions
+        {
+            handlerTypes = new[] { typeof(MyCommands) }
+        });
+    }
+}
+#endif
 ```
 
-如需更细粒度控制，可实现 `ICommandAssemblyFilter` 并作为第二个参数传入 `Configure(...)`。
-`Configure` 会复制 option values 与 prefix array；之后修改原 options object
-不会生效，需要重新调用 `Configure` 发布新配置。`ICommandAssemblyFilter`
-在同一个配置生命周期内必须保持确定性；filter state 变化时也必须重新调用
-`Configure`，以便 registry 正确失效。
+Player 回调要放在 Unity 启动扫描可见的 asmdef 中。Unity 2022 的这一步可能跳过受
+`DEVELOPMENT_BUILD` 约束的 asmdef，因此示例在源码中用 `#if`，而不限制 asmdef。
+
+`handlerTypes` 非空时只注册列表中的自定义命令，内置命令照常可用。要扫描程序集，
+则将列表留空，通过 `assemblyNamePrefixes`、`scanReferencingAssembliesOnly`、
+`includeEditorAssemblies` 或 `ICommandAssemblyFilter` 限制扫描范围。`Configure`
+会复制配置和数组；更新配置需要再次调用，下次注册表请求时会重建。
 
 程序集加载后，framework 会在下一次请求时惰性刷新 discovery。它先完整构建并
 校验 built-in + custom 候选 registry，再一次性发布；assembly、type、method

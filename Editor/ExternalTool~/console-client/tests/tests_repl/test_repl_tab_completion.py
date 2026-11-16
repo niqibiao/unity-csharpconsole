@@ -1199,6 +1199,24 @@ class CommandActionCompletionRoutingTests(unittest.TestCase):
             "@-prefixed action text should use command action completion",
         )
 
+    def test_namespace_completion_lists_its_actions(self):
+        completer = CommandExpressionCompleter(
+            lambda: [
+                {"commandNamespace": "game", "action": action, "arguments": []}
+                for action in ("step", "pause", "resume", "quit", "reload")
+            ]
+            + [{"commandNamespace": "gizmo", "action": "toggle", "arguments": []}]
+        )
+
+        completions = list(completer.get_completions(FakeDocument("@g"), None))
+        completion_by_text = {completion.text: completion for completion in completions}
+
+        self.assertEqual(
+            completion_by_text["game"].display_meta_text,
+            "5 actions: pause, quit, reload, resume, ...",
+        )
+        self.assertEqual(completion_by_text["gizmo"].display_meta_text, "1 action: toggle")
+
     def test_action_completion_uses_catalog_summary_and_signature(self):
         completer = CommandExpressionCompleter(
             lambda: [

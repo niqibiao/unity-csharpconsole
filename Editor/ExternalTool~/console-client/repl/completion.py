@@ -65,6 +65,7 @@ class CommandExpressionCompleter(Completer):
         self._get_command_catalog = get_command_catalog
         self._catalog_cache_key = None
         self._namespace_candidates = []
+        self._namespace_meta = {}
         self._action_candidates = []
         self._command_lookup = {}
 
@@ -80,9 +81,9 @@ class CommandExpressionCompleter(Completer):
             return
 
         self._catalog_cache_key = cache_key
-        self._namespace_candidates = sorted({item.get("commandNamespace", "") for item in catalog if item.get("commandNamespace")})
         self._action_candidates = []
         self._command_lookup = {}
+        actions_by_namespace = {}
 
         for command in catalog:
             namespace = command.get("commandNamespace", "")
@@ -90,12 +91,27 @@ class CommandExpressionCompleter(Completer):
             if not namespace:
                 continue
             meta = self._build_action_meta(command, summary)
-            for action_or_alias in self._iter_action_candidates(command):
-                full_name = f"{namespace}.{action_or_alias}"
+            actions = actions_by_namespace.setdefault(namespace, set())
+            for action in self._iter_action_candidates(command):
+                actions.add(action)
+                full_name = f"{namespace}.{action}"
                 self._action_candidates.append((full_name, meta))
                 self._command_lookup[full_name] = command
 
         self._action_candidates.sort(key=lambda item: item[0])
+        self._namespace_candidates = sorted(actions_by_namespace)
+        self._namespace_meta = {
+            namespace: self._build_namespace_meta(actions)
+            for namespace, actions in actions_by_namespace.items()
+        }
+
+    @staticmethod
+    def _build_namespace_meta(actions):
+        if not actions:
+            return ""
+        noun = "action" if len(actions) == 1 else "actions"
+        shown = ", ".join(sorted(actions)[:4]) + (", ..." if len(actions) > 4 else "")
+        return f"{len(actions)} {noun}: {shown}"
 
     @staticmethod
     def _build_action_meta(command, summary):
@@ -124,7 +140,12 @@ class CommandExpressionCompleter(Completer):
 
             for candidate in self._namespace_candidates:
                 if candidate.startswith(typed):
-                    yield Completion(candidate, start_position=-len(typed), display=candidate)
+                    yield Completion(
+                        candidate,
+                        start_position=-len(typed),
+                        display=candidate,
+                        display_meta=self._namespace_meta.get(candidate, ""),
+                    )
 
             path_prefix = typed.rpartition(".")[0]
             action_prefix = typed[len(path_prefix) + 1:] if path_prefix else typed

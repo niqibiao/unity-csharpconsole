@@ -4,7 +4,7 @@ These C# files are executable Editor REPL submissions, kept outside Unity's asse
 
 Copy a script to the consuming project's `Temp/CSharpConsole/AgentScratch/`, then execute it in Editor mode with the package REPL's `/dofile` or unity-cli's `exec --file`.
 
-- `PlayerBuildRecordRegression.cs` checks build argument selection with newer artifacts from another target or scripting backend. It does not require those platform modules to be installed.
+- `PlayerBuildRecordRegression.cs` checks that the player graph matching the build is found among graphs from other targets, backends, configurations and output paths, including Unity 6 and Android graphs and macOS bundles without `.app`; that linker arguments are read from a response file or inline; and that missing or ambiguous graphs are refused. It does not require those platform modules to be installed.
 - `CompileSetReferencesRegression.cs` requires a successful Player build and its exported `CSharpConsoleCompileSet.zip`. It checks reference isolation, completion, continuing a session after a compile error, legacy reference modes, and invalid reference directories.
 - `RuntimeCompileSetSessionRegression.cs` checks completion after registration,
   replacement and skip changes, compiler invalidation, explicit overrides, and
@@ -15,6 +15,15 @@ The build-record and reference scripts create isolated fixtures under the
 consuming project's `Temp/`. The session script cleans up its own unique entries
 under `Library/CSharpConsole/CompileSets/`. None changes build settings or
 application source.
+
+`run_player_build_record_tests.py` runs `PlayerBuildRecordRegression.cs` without
+Unity: it compiles `PlayerBuildRecord.cs` and `CompileSetExporter.cs` with the shims
+in `PlayerBuildRecordReplay.cs` and requires the .NET SDK 8 or newer. Run
+`python -B Tests~/run_player_build_record_tests.py`. Each `--replay CAPTURE_JSON`
+also exports a compile set from a real build's files and compares every ZIP entry
+with the ZIP that build exported, by SHA-256. A capture names files in place, so
+replay it before the project builds again; the harness writes only to its own
+temporary directory.
 
 `test_compile_set_http.py` checks registration against unreachable, malformed, and
 mismatched fake players. It requires a local Editor with this package loaded;

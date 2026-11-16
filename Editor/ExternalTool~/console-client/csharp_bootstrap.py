@@ -90,6 +90,10 @@ def ensure_deps(requirements_filename, marker_name):
     if need_install:
         print(f"[bootstrap] Installing dependencies from {requirements_filename} ...", file=sys.stderr)
         _ensure_pip()
+        # pip implements --target with --home, and refuses an inherited
+        # PIP_PREFIX next to it: "Cannot set --home and --prefix together".
+        pip_env = dict(os.environ)
+        pip_env.pop("PIP_PREFIX", None)
         subprocess.check_call([
             sys.executable,
             "-m",
@@ -102,7 +106,7 @@ def ensure_deps(requirements_filename, marker_name):
             requirements_path,
             "--no-warn-script-location",
             "-q",
-        ])
+        ], env=pip_env)
         with open(marker_path, "w", encoding="utf-8") as f:
             f.write(requirements_hash)
         print("[bootstrap] Done.", file=sys.stderr)

@@ -676,14 +676,25 @@ namespace Zh1Zh1.CSharpConsole.Service
             }
         }
 
+        private static RuntimeHealthHeartbeat s_RuntimeHealthHeartbeat;
+
+        /// <summary>
+        /// Runs before the s_Initialized guard, so a second ConsoleInitialize call
+        /// reaches it too; the field keeps that call from adding a second object.
+        /// </summary>
         private static void EnsureRuntimeHealthHeartbeat()
         {
+            if (s_RuntimeHealthHeartbeat != null)
+            {
+                return;
+            }
+
             var heartbeatObject = new GameObject("CSharpConsoleHealthHeartbeat")
             {
                 hideFlags = HideFlags.HideAndDontSave
             };
             UnityEngine.Object.DontDestroyOnLoad(heartbeatObject);
-            heartbeatObject.AddComponent<RuntimeHealthHeartbeat>();
+            s_RuntimeHealthHeartbeat = heartbeatObject.AddComponent<RuntimeHealthHeartbeat>();
         }
 #endif
 

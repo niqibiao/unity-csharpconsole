@@ -1,0 +1,16 @@
+{
+    "name": "Zh1Zh1.CSharpConsole.Bootstrap",
+    "rootNamespace": "Zh1Zh1.CSharpConsole",
+    "references": [
+        "Zh1Zh1.CSharpConsole.Runtime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

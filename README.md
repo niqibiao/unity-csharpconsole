@@ -11,7 +11,7 @@
 [![UPM](https://img.shields.io/badge/UPM-Package-brightgreen.svg)](package.json)
 
 Execute C# code on the fly in Unity Editor & Runtime — no compilation wait, no boilerplate,<br/>
-full access to your project's live state. **Editor zero-config, Runtime just works with HybridCLR.**
+full access to your project's live state. **Editor zero-config, Development Players start it automatically.**
 
 [Features](#features) · [Installation](#installation) · [Quick Start](#quick-start) · [REPL Usage](#repl-usage) · [Extending Commands](#extending-commands)
 
@@ -102,7 +102,7 @@ Or reference as a local package:
 }
 ```
 
-> **Note:** Both assembly definitions have `autoReferenced: false`. If your code needs to reference this package, add `Zh1Zh1.CSharpConsole.Runtime` (or `.Editor`) to your asmdef's references explicitly.
+> **Note:** If your code needs the package API, explicitly reference `Zh1Zh1.CSharpConsole.Runtime` (or `.Editor`) in your asmdef.
 
 ## ▶ Quick Start
 
@@ -115,17 +115,13 @@ Or reference as a local package:
 | **Console > C#Console** | Local Editor |
 | **Console > RemoteC#Console** | Remote Editor / Player |
 
-### Runtime — One Line, No Extra Setup
+### Runtime — Automatic Startup
 
-Enable the remote console on a Player build with a single call:
+A Development Player starts the HTTP service after its first scene loads, even when the project does not reference the package from its scripts. The runtime service is excluded from non-Development builds.
 
-```csharp
-#if DEVELOPMENT_BUILD
-Zh1Zh1.CSharpConsole.RuntimeInitializer.ConsoleInitialize();
-#endif
-```
+To turn off automatic startup, add `ZH1ZH1_CSC_DISABLE_AUTOSTART` to the target's **Scripting Define Symbols**. Game code can still call `Zh1Zh1.CSharpConsole.RuntimeInitializer.ConsoleInitialize()` on the main thread in a Development Player to start the service explicitly or earlier. Repeated calls reuse the service.
 
-Runtime execution only depends on **HybridCLR**'s `Assembly.Load` capability for IL2CPP (no additional configuration needed).
+Built-in commands work without HybridCLR. Executing arbitrary C# submissions in an IL2CPP Player requires **HybridCLR** for `Assembly.Load`.
 
 > The runtime assembly is gated by `DEVELOPMENT_BUILD || UNITY_EDITOR`.
 

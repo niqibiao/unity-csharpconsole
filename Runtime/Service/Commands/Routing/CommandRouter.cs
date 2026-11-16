@@ -141,7 +141,16 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
         {
             var router = new CommandRouter(BuildMainThreadRunner());
             RegisterBuiltinHandlers(router);
-            router.RegisterAttributedHandlersFromLoadedAssemblies();
+            var discoveryOptions = CommandDiscoveryOptions.GetCurrent();
+            if (discoveryOptions.handlerTypes.Length > 0)
+            {
+                router.RegisterListedHandlers(discoveryOptions.handlerTypes);
+            }
+            else
+            {
+                router.RegisterAttributedHandlersFromLoadedAssemblies(discoveryOptions);
+            }
+
             return router;
         }
 
@@ -165,9 +174,8 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
             RuntimeInfoCommandActions.Register(router);
         }
 
-        private void RegisterAttributedHandlersFromLoadedAssemblies()
+        private void RegisterAttributedHandlersFromLoadedAssemblies(CommandDiscoveryOptions discoveryOptions)
         {
-            var discoveryOptions = CommandDiscoveryOptions.GetCurrent();
             var assemblyFilter = CommandDiscoveryOptions.GetAssemblyFilter();
             var discoveredAssemblies = AppDomain.CurrentDomain.GetAssemblies();
             var candidates = new List<Assembly>(discoveredAssemblies.Length);
@@ -228,6 +236,33 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Routing
 
                     RegisterAttributedHandlersFromType(type, RegistryPartition.Custom);
                 }
+            }
+        }
+
+        private void RegisterListedHandlers(Type[] handlerTypes)
+        {
+            var unique = new HashSet<Type>();
+            var types = new List<Type>(handlerTypes.Length);
+            foreach (var type in handlerTypes)
+            {
+                if (type == null)
+                {
+                    throw new InvalidOperationException(
+                        "CommandDiscoveryOptions.handlerTypes contains a null entry.");
+                }
+
+                if (unique.Add(type))
+                {
+                    types.Add(type);
+                }
+            }
+
+            // The order the caller listed them in must not change the snapshot, as
+            // assembly and type order does not when scanning.
+            types.Sort(CompareTypes);
+            foreach (var type in types)
+            {
+                RegisterAttributedHandlersFromType(type, RegistryPartition.Custom);
             }
         }
 

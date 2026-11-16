@@ -28,14 +28,9 @@ namespace Zh1Zh1.CSharpConsole
         }
 
         /// <summary>
-        /// Called from <see cref="RuntimeInitializer"/> rather than through
-        /// RuntimeInitializeOnLoadMethod: measured in a player, an attributed method in
-        /// this assembly never reached RuntimeInitializeOnLoads.json, though the same
-        /// declaration in the project's own assembly did, and though the method and its
-        /// attribute both survived stripping. Initialising from the call that starts the
-        /// service does not depend on that scan, and is on the main thread by
-        /// construction -- which the property requires and the HTTP worker serving a
-        /// health request is not.
+        /// Called from <see cref="RuntimeInitializer"/> before the service starts. That
+        /// call is made on the main thread, which the property requires and the HTTP
+        /// worker serving a health request is not.
         ///
         /// That reachable call is also what keeps Application.buildGUID in the build. It
         /// is stripped out of a player that never mentions it, and no attribute can be

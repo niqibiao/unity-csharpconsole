@@ -72,7 +72,6 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
                 var exportPath = settings.ResolveExportPath();
 
                 var projectRoot = Directory.GetParent(Application.dataPath).FullName;
-                var artifacts = Path.Combine(projectRoot, "Library/Bee/artifacts");
                 var engineDirectory = BuildPipeline.GetPlaybackEngineDirectory(report.summary.platform, report.summary.options);
                 var namedTarget = report.summary.platformGroup == BuildTargetGroup.Standalone
                     && report.summary.GetSubtarget<StandaloneBuildSubtarget>() == StandaloneBuildSubtarget.Server
@@ -85,21 +84,11 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
                     ScriptingImplementation.Mono2x => "Mono",
                     _ => throw new InvalidOperationException("Unsupported scripting backend for compile-set export."),
                 };
-                var (strippedAssembliesPath, bclMscorlibPath, engineAssembly) = ReadLinkerArguments(projectRoot, artifacts, engineDirectory, backend);
-                var development = (report.summary.options & BuildOptions.Development) != 0;
-                var defines = ReadPlayerDefines(artifacts, development, engineAssembly, backend);
-                if (string.IsNullOrEmpty(defines))
-                {
-                    throw new InvalidOperationException("Could not identify the compiler arguments for this player's target and backend.");
-                }
-
-                var record = new PlayerBuildRecord
-                {
-                    buildGuid = report.summary.guid.ToString(),
-                    strippedAssembliesPath = strippedAssembliesPath,
-                    bclMscorlibPath = bclMscorlibPath,
-                    defines = defines,
-                };
+                var record = ReadArtifacts(projectRoot, engineDirectory, backend,
+                    (report.summary.options & BuildOptions.Development) != 0, report.summary.outputPath,
+                    (report.summary.options & BuildOptions.InstallInBuildFolder) != 0,
+                    report.summary.platform == BuildTarget.StandaloneOSX,
+                    report.summary.platform == BuildTarget.Android, report.summary.guid.ToString());
 
                 CompileSetExporter.Export(record, exportPath);
             }
@@ -111,74 +100,227 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
             }
         }
 
-        /// <summary>
-        /// The command line Unity handed UnityLinker for this build: where it wrote the
-        /// stripped assemblies, and the unstripped mscorlib of the profile it linked
-        /// against. Both come from the one file, so they describe the same build and need
-        /// no mapping from build target and scripting backend to BCL profile.
-        ///
-        /// Under Library/Bee/artifacts rather than in the build output, because an IL2CPP
-        /// build converts the stripped assemblies to C++ and ships no managed directory.
-        /// Every target built leaves a linker command line there; this build's is the one
-        /// that links engine modules from <paramref name="engineDirectory"/>, the target's
-        /// player support.
-        /// </summary>
-        private static (string strippedAssembliesPath, string bclMscorlibPath, string engineAssembly) ReadLinkerArguments(string projectRoot, string artifacts, string engineDirectory, string expectedBackend)
+        internal static PlayerBuildRecord ReadArtifacts(string projectRoot, string engineDirectory, string backend,
+            bool development, string outputPath, bool installInBuildFolder, bool appBundle, bool stagedOutput,
+            string buildGuid)
         {
-            var rspDirectory = Path.Combine(artifacts, "rsp");
-            if (!Directory.Exists(rspDirectory))
+            var graph = FindPlayerGraph(projectRoot, engineDirectory, backend, development, outputPath,
+                installInBuildFolder, appBundle, stagedOutput);
+            var (strippedAssembliesPath, bclMscorlibPath, engineAssembly) =
+                ParseLinkerArguments(ReadLinkerCommandLine(projectRoot, graph), backend);
+            var defines = ReadPlayerDefines(Path.Combine(projectRoot, "Library/Bee/artifacts"), development, engineAssembly, backend);
+            if (string.IsNullOrEmpty(defines))
             {
-                return (null, null, null);
+                throw new InvalidOperationException("Could not identify the compiler arguments for this player's target and backend.");
             }
 
-            var engine = string.IsNullOrEmpty(engineDirectory) ? null : engineDirectory.Replace('\\', '/').TrimEnd('/') + "/";
-
-            // Other tools write their command lines here too; the linker's is the one
-            // whose output is the stripped directory.
-            foreach (var rsp in Directory.GetFiles(rspDirectory, "*.rsp").OrderByDescending(path => File.GetLastWriteTimeUtc(path)))
+            return new PlayerBuildRecord
             {
-                string output = null;
-                string mscorlib = null;
-                string engineAssembly = null;
-                string backend = null;
-                var linksThisTarget = engine == null;
-                foreach (Match argument in s_LinkerArgument.Matches(File.ReadAllText(rsp)))
+                buildGuid = buildGuid,
+                strippedAssembliesPath = Path.GetFullPath(Path.Combine(projectRoot, strippedAssembliesPath)),
+                bclMscorlibPath = string.IsNullOrEmpty(bclMscorlibPath) ? null
+                    : Path.GetFullPath(Path.Combine(projectRoot, bclMscorlibPath)),
+                defines = defines,
+            };
+        }
+
+        /// <summary>
+        /// The Bee graph Unity built this player with, found through the configuration
+        /// Unity wrote beside it: every player build leaves a Player*-inputdata.json
+        /// next to its Player*.dag.json, and the build being recorded is the one whose
+        /// player support, backend, configuration, output path and install mode are the
+        /// ones just built.
+        ///
+        /// The graph is what makes the linker's arguments trustworthy. Picked from the
+        /// response files alone, they could belong to another build -- the newest file
+        /// is not this build's when this build changed nothing, since Bee rewrites a
+        /// file only when its content changes -- and some builds have none: their linker
+        /// arguments are written into the graph itself. Graphs this build cannot be told
+        /// apart from are refused rather than guessed between.
+        ///
+        /// Measured with Unity 6, an Android graph builds the Gradle project in Unity's
+        /// staging directory, one per backend, and never names the APK it becomes, so
+        /// for <paramref name="stagedOutput"/> the output path is not compared.
+        /// </summary>
+        private static string FindPlayerGraph(string projectRoot, string engineDirectory, string backend,
+            bool development, string outputPath, bool installInBuildFolder, bool appBundle, bool stagedOutput)
+        {
+            var bee = Path.Combine(projectRoot, "Library/Bee");
+            if (!Directory.Exists(bee))
+            {
+                throw new InvalidOperationException("The project has no Library/Bee directory, so this build left no player graph to read.");
+            }
+
+            var playerSupport = NormalizePath(projectRoot, engineDirectory, false);
+            var destination = NormalizePath(projectRoot, outputPath, appBundle);
+            var matches = Directory.GetFiles(bee, "Player*-inputdata.json")
+                .Where(input =>
                 {
-                    var value = argument.Groups[2].Success ? argument.Groups[2].Value : argument.Groups[3].Value;
-                    if (argument.Groups[1].Value == "out")
-                    {
-                        output = value;
-                    }
-                    else if (argument.Groups[1].Value == "dotnetruntime")
-                    {
-                        backend = value;
-                    }
-                    else if (string.Equals(Path.GetFileName(value), "mscorlib.dll", StringComparison.OrdinalIgnoreCase))
+                    var config = JsonUtility.FromJson<PlayerGraphInput>(
+                        File.ReadAllText(input).Replace(PlayerBuildConfigKey, "\"" + nameof(PlayerGraphInput.PlayerBuildConfig) + "\""))
+                        ?.PlayerBuildConfig;
+                    return config != null
+                        && BuiltWithBackend(config, backend)
+                        && config.Development == development
+                        && config.InstallIntoBuildsFolder == installInBuildFolder
+                        && string.Equals(NormalizePath(projectRoot, config.PlayerPackage, false), playerSupport, s_PathComparison)
+                        && (stagedOutput
+                            || string.Equals(NormalizePath(projectRoot, config.DestinationPath, appBundle), destination, s_PathComparison));
+                })
+                .Select(input => input.Substring(0, input.Length - "-inputdata.json".Length) + ".dag.json")
+                .ToArray();
+
+            if (matches.Length != 1)
+            {
+                throw new InvalidOperationException(matches.Length == 0
+                    ? $"No player graph in {bee} matches this build ({backend}, {(development ? "Development" : "Release")}, {outputPath})."
+                    : $"Several player graphs match this build, and none can be told to be its own: {string.Join(", ", matches.Select(Path.GetFileName))}.");
+            }
+
+            return matches[0];
+        }
+
+        /// <summary>
+        /// Unity 6 names the backend, as IL2CPP or Mono; Unity 2022 records only whether
+        /// it was IL2CPP.
+        /// </summary>
+        private static bool BuiltWithBackend(PlayerGraphConfig config, string backend)
+        {
+            return string.IsNullOrEmpty(config.ScriptingBackend)
+                ? config.UseIl2Cpp == string.Equals(backend, "Il2Cpp", StringComparison.OrdinalIgnoreCase)
+                : string.Equals(config.ScriptingBackend, backend, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// The key Unity's player build program files the build configuration under. It
+        /// names a type, which a field cannot, so it is renamed before parsing.
+        /// </summary>
+        private const string PlayerBuildConfigKey = "\"PlayerBuildProgramLibrary.Data.PlayerBuildConfig\"";
+
+        /// <summary>
+        /// Unity records paths relative or absolute, with either separator. Compare them
+        /// as absolute paths, ignoring case on Windows. A macOS app bundle compares
+        /// without its .app suffix: an editor may add the suffix to the path it builds
+        /// while the build report keeps the path as requested.
+        /// </summary>
+        private static string NormalizePath(string projectRoot, string path, bool appBundle)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return "";
+            }
+
+            var normalized = Path.GetFullPath(Path.Combine(projectRoot, path.Replace('\\', '/'))).Replace('\\', '/').TrimEnd('/');
+            if (appBundle && normalized.EndsWith(".app", StringComparison.OrdinalIgnoreCase))
+            {
+                normalized = normalized.Substring(0, normalized.Length - ".app".Length);
+            }
+
+            return normalized;
+        }
+
+        private static readonly StringComparison s_PathComparison = Path.DirectorySeparatorChar == '\\'
+            ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+        /// <summary>
+        /// The command line of the one UnityLinker step in <paramref name="graphPath"/>,
+        /// with each response file it names (<c>@file</c>) read in place of the
+        /// reference. A graph with no linker step, or several, has nothing to say which
+        /// stripped assemblies this player shipped.
+        /// </summary>
+        private static string ReadLinkerCommandLine(string projectRoot, string graphPath)
+        {
+            if (!File.Exists(graphPath))
+            {
+                throw new InvalidOperationException($"The player graph {graphPath} is missing.");
+            }
+
+            var linkers = (JsonUtility.FromJson<BeeGraph>(File.ReadAllText(graphPath))?.Nodes ?? Array.Empty<BeeNode>())
+                .Where(node => node?.Annotation?.StartsWith("UnityLinker ", StringComparison.Ordinal) == true)
+                .ToArray();
+            if (linkers.Length != 1)
+            {
+                throw new InvalidOperationException(linkers.Length == 0
+                    ? $"The player graph {Path.GetFileName(graphPath)} has no UnityLinker step; this build did not strip its assemblies."
+                    : $"The player graph {Path.GetFileName(graphPath)} has {linkers.Length} UnityLinker steps, and no way to tell which one this build shipped.");
+            }
+
+            return s_CommandLineToken.Replace(linkers[0].Action ?? "", token =>
+            {
+                var value = token.Value.Replace("\"", "");
+                if (!value.StartsWith("@", StringComparison.Ordinal) || value.Length == 1)
+                {
+                    return token.Value;
+                }
+
+                var path = Path.Combine(projectRoot, value.Substring(1));
+                if (!File.Exists(path))
+                {
+                    throw new InvalidOperationException($"UnityLinker's response file {path} is missing.");
+                }
+
+                return File.ReadAllText(path);
+            });
+        }
+
+        // A token can include a quoted span, e.g. --out="path with spaces" or @"file name".
+        private static readonly Regex s_CommandLineToken = new Regex("(?:[^\\s\"]|\"[^\"]*\")+");
+
+        /// <summary>
+        /// From the command line Unity handed UnityLinker: where it wrote the stripped
+        /// assemblies (as given, usually relative to the project), the unstripped
+        /// mscorlib of the profile it linked against, and the engine core module it was
+        /// given. All come from the one command line, so they describe the same build
+        /// and need no mapping from target and backend to BCL profile.
+        ///
+        /// The stripped assemblies are read from the linker's output directory, usually
+        /// under Library/Bee/artifacts, rather than the build output, because an IL2CPP
+        /// build converts them to C++ and ships no managed directory.
+        /// </summary>
+        private static (string strippedAssembliesPath, string bclMscorlibPath, string engineAssembly) ParseLinkerArguments(string commandLine, string expectedBackend)
+        {
+            string output = null;
+            string mscorlib = null;
+            string engineAssembly = null;
+            string backend = null;
+            foreach (Match token in s_CommandLineToken.Matches(commandLine))
+            {
+                var argument = token.Value.Replace("\"", "");
+                if (argument.StartsWith("--out=", StringComparison.Ordinal))
+                {
+                    output = argument.Substring("--out=".Length);
+                }
+                else if (argument.StartsWith("--dotnetruntime=", StringComparison.Ordinal))
+                {
+                    backend = argument.Substring("--dotnetruntime=".Length);
+                }
+                else if (argument.StartsWith("--allowed-assembly=", StringComparison.Ordinal))
+                {
+                    var value = argument.Substring("--allowed-assembly=".Length);
+                    var name = Path.GetFileName(value);
+                    if (string.Equals(name, "mscorlib.dll", StringComparison.OrdinalIgnoreCase))
                     {
                         mscorlib = value;
                     }
-                    else if (engine != null && value.Replace('\\', '/').StartsWith(engine, StringComparison.OrdinalIgnoreCase))
+                    else if (string.Equals(name, "UnityEngine.CoreModule.dll", StringComparison.OrdinalIgnoreCase))
                     {
-                        linksThisTarget = true;
-                        if (string.Equals(Path.GetFileName(value), "UnityEngine.CoreModule.dll", StringComparison.OrdinalIgnoreCase))
-                        {
-                            engineAssembly = value;
-                        }
+                        engineAssembly = value;
                     }
-                }
-
-                if (linksThisTarget && string.Equals(backend, expectedBackend, StringComparison.OrdinalIgnoreCase)
-                    && output != null && Path.GetFileName(output) == "ManagedStripped")
-                {
-                    return (Path.GetFullPath(Path.Combine(projectRoot, output)), mscorlib, engineAssembly);
                 }
             }
 
-            return (null, null, null);
-        }
+            if (!string.Equals(backend, expectedBackend, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"The linker step ran for the {backend ?? "unknown"} backend, not this build's {expectedBackend}.");
+            }
 
-        /// <summary>One <c>--name=value</c> argument, the value quoted or bare.</summary>
-        private static readonly Regex s_LinkerArgument = new Regex("--(out|allowed-assembly|dotnetruntime)=(?:\"([^\"]*)\"|(\\S+))");
+            if (output == null || Path.GetFileName(output.TrimEnd('/', '\\')) != "ManagedStripped")
+            {
+                throw new InvalidOperationException($"The linker step wrote to {output ?? "no directory"}, not a ManagedStripped directory.");
+            }
+
+            return (output, mscorlib, engineAssembly);
+        }
 
         /// <summary>
         /// The command line Unity handed Roslyn for this build, which is the only exact
@@ -243,6 +385,37 @@ namespace Zh1Zh1.CSharpConsole.Editor.Compiler
             }
 
             return "";
+        }
+
+        [Serializable]
+        private class PlayerGraphInput
+        {
+            public PlayerGraphConfig PlayerBuildConfig;
+        }
+
+        /// <summary>The fields of Unity's player build configuration a build is matched on.</summary>
+        [Serializable]
+        private class PlayerGraphConfig
+        {
+            public string DestinationPath;
+            public string PlayerPackage;
+            public bool UseIl2Cpp;
+            public string ScriptingBackend;
+            public bool Development;
+            public bool InstallIntoBuildsFolder;
+        }
+
+        [Serializable]
+        private class BeeGraph
+        {
+            public BeeNode[] Nodes;
+        }
+
+        [Serializable]
+        private class BeeNode
+        {
+            public string Annotation;
+            public string Action;
         }
     }
 }

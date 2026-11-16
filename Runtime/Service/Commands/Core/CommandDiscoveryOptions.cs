@@ -14,6 +14,17 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
         public bool scanReferencingAssembliesOnly = true;
         public bool includeEditorAssemblies = true;
 
+        /// <summary>
+        /// When not empty, the custom commands are exactly the [CommandAction] methods
+        /// of these types, and no assembly is scanned: the prefixes and flags above, and
+        /// any assembly filter passed to Configure, are not consulted. Scanning calls
+        /// GetTypes() on every candidate assembly, which under IL2CPP creates class
+        /// metadata for each type in it that is never released -- a cost a large game
+        /// assembly referencing this package pays on the first command. Built-in
+        /// commands are registered either way.
+        /// </summary>
+        public Type[] handlerTypes = Array.Empty<Type>();
+
         public static void Configure(CommandDiscoveryOptions options, ICommandAssemblyFilter assemblyFilter = null)
         {
             lock (s_Lock)
@@ -61,7 +72,10 @@ namespace Zh1Zh1.CSharpConsole.Service.Commands.Core
                         ?? Array.Empty<string>()).Clone(),
                 scanReferencingAssembliesOnly =
                     options.scanReferencingAssembliesOnly,
-                includeEditorAssemblies = options.includeEditorAssemblies
+                includeEditorAssemblies = options.includeEditorAssemblies,
+                handlerTypes =
+                    (Type[])(options.handlerTypes
+                        ?? Array.Empty<Type>()).Clone()
             };
         }
     }

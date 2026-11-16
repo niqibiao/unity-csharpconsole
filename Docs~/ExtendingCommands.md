@@ -17,6 +17,9 @@ Create an asmdef (or use an existing one) that references `Zh1Zh1.CSharpConsole.
 }
 ```
 
+The Runtime API is available in the Editor and Development Players. Guard code
+in assemblies that also build for Release with `#if UNITY_EDITOR || DEVELOPMENT_BUILD`.
+
 ## Step 2 — Write a command handler
 
 ### Minimal form — return `(bool, string)` tuple
@@ -37,6 +40,13 @@ public static class MyCommands
 ```
 
 Return `(true, "message")` for success, `(false, "message")` for failure.
+
+### Managed stripping
+
+`[CommandAction]` derives from `PreserveAttribute`. Unity keeps the annotated
+method when it processes its assembly. An assembly with no other reference may
+still be skipped by the linker; explicitly registering a handler with `typeof`
+keeps its assembly reachable from the registration code.
 
 ### Full form — return `CommandResponse` with structured data
 
@@ -248,27 +258,43 @@ public static class MyEditorCommands
 
 ## Configuring Command Discovery
 
-By default the framework scans all loaded assemblies for `[CommandAction]` attributes. For large projects you can restrict scanning to specific assemblies:
+By default the framework scans loaded assemblies that reference the Runtime
+assembly. For large projects, register the types that own custom commands to
+avoid enumerating every type in those assemblies at the first request:
 
 ```csharp
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+using UnityEngine;
 using Zh1Zh1.CSharpConsole.Service.Commands.Core;
 
-// Call before ConsoleInitialize()
-CommandDiscoveryOptions.Configure(
-    new CommandDiscoveryOptions
+internal static class MyCommandDiscovery
+{
+#if UNITY_EDITOR
+    [UnityEditor.InitializeOnLoadMethod]
+#else
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+#endif
+    private static void Configure()
     {
-        assemblyNamePrefixes = new[] { "MyGame", "MyCompany" },
-        scanReferencingAssembliesOnly = true,
-        includeEditorAssemblies = false
-    },
-    assemblyFilter: null);
-
-Zh1Zh1.CSharpConsole.RuntimeInitializer.ConsoleInitialize();
+        CommandDiscoveryOptions.Configure(new CommandDiscoveryOptions
+        {
+            handlerTypes = new[] { typeof(MyCommands) }
+        });
+    }
+}
+#endif
 ```
 
-For finer-grained control, implement `ICommandAssemblyFilter` and pass it as the second argument to `Configure(...)`.
-`Configure` copies the option values and prefix array. Mutating the original options
-object later has no effect; call `Configure` again to publish a new configuration.
+Place the Player callback in an asmdef that Unity's startup scan can see. In
+Unity 2022, an asmdef constrained by `DEVELOPMENT_BUILD` can be skipped by that
+scan. The example uses source guards so the asmdef itself can be unconstrained.
+
+A non-empty `handlerTypes` list replaces custom assembly scanning; built-ins
+remain available. For assembly scanning, leave `handlerTypes` empty and use
+`assemblyNamePrefixes`, `scanReferencingAssembliesOnly`, `includeEditorAssemblies`
+or pass an `ICommandAssemblyFilter` as the second argument to `Configure`.
+`Configure` copies the option values and arrays. Call it again to publish changes;
+the next registry request rebuilds the registry.
 An `ICommandAssemblyFilter` must remain deterministic for that configuration
 lifetime. If its state changes, call `Configure` again so the registry is invalidated.
 
